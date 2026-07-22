@@ -51,6 +51,22 @@ export interface IEBaselineModule {
   question_count?: number | null;
 }
 
+export interface IEBaselineModuleQuestion {
+  id: number;
+  module_id: number;
+  module_name: string;
+  category: string | null;
+  keyword: string | null;
+  ibpm_l2: string | null;
+  ibpm_l3: string | null;
+  risk: string | null;
+  question_no: number | string | null;
+  question: string;
+  options: string | null;
+  reference: string | null;
+  memo: string | null;
+}
+
 export interface IEBaselineUserModulesResponse {
   user: IEBaselineHomeUser;
   assigned_module_ids: number[];
@@ -130,5 +146,9 @@ export const ieBaselineApi = {
   },
   modules: {
     list: () => get<IEBaselineModule[]>('/modules'),
+    questions: {
+      get: (moduleId: number) =>
+        get<IEBaselineModuleQuestion[]>(`/modules/${encodeURIComponent(String(moduleId))}/questions`),
+    },
   },
 };

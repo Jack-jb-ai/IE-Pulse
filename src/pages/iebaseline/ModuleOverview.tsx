@@ -282,7 +282,13 @@ export default function ModuleOverview() {
         </div>
       </div>
 
-      {activeExam && <ExamModal onClose={() => setActiveExam(null)} />}
+      {activeExam && (
+        <ExamModal
+          moduleId={assignment.module_id}
+          moduleName={assignment.module_name}
+          onClose={() => setActiveExam(null)}
+        />
+      )}
     </div>
   );
 }
