@@ -35,6 +35,40 @@ export interface IEBaselineHomeResponse {
   assignments: IEBaselineHomeAssignment[];
 }
 
+export interface IEBaselineUser {
+  user_id: number;
+  name: string;
+  position: string | null;
+  wd_id: number | null;
+  assigned_module_count?: number | null;
+}
+
+export interface IEBaselineModule {
+  module_id: number;
+  module_name: string;
+  description: string | null;
+  owner_name: string | null;
+  question_count?: number | null;
+}
+
+export interface IEBaselineUserModulesResponse {
+  user: IEBaselineHomeUser;
+  assigned_module_ids: number[];
+}
+
+export interface IEBaselineUpdateUserModulesRequest {
+  module_ids: number[];
+  assignee_id: number;
+}
+
+export interface IEBaselineUpdateUserModulesResponse {
+  user_id: number;
+  assigned_module_ids: number[];
+  added_module_ids: number[];
+  removed_module_ids: number[];
+  unchanged_module_ids: number[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
 
@@ -53,9 +87,48 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function sendJson<TResponse, TBody>(method: 'PUT' | 'POST' | 'DELETE', path: string, body: TBody): Promise<TResponse> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const responseBody = await res.json();
+      detail = typeof responseBody?.detail === 'string' ? `: ${responseBody.detail}` : '';
+    } catch {
+      detail = '';
+    }
+
+    throw new Error(`IE Baseline API ${path} -> ${res.status}${detail}`);
+  }
+
+  return res.json() as Promise<TResponse>;
+}
+
 export const ieBaselineApi = {
   home: {
     get: (userId = IEBASELINE_DEMO_USER_ID) =>
       get<IEBaselineHomeResponse>(`/home?user_id=${encodeURIComponent(String(userId))}`),
+  },
+  users: {
+    list: () => get<IEBaselineUser[]>('/users'),
+    modules: {
+      get: (userId: number) => get<IEBaselineUserModulesResponse>(`/users/${encodeURIComponent(String(userId))}/modules`),
+      update: (userId: number, payload: IEBaselineUpdateUserModulesRequest) =>
+        sendJson<IEBaselineUpdateUserModulesResponse, IEBaselineUpdateUserModulesRequest>(
+          'PUT',
+          `/users/${encodeURIComponent(String(userId))}/modules`,
+          payload,
+        ),
+    },
+  },
+  modules: {
+    list: () => get<IEBaselineModule[]>('/modules'),
   },
 };

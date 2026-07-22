@@ -233,6 +233,7 @@ export const APPS: AppConfig[] = [
     navItems: [
       { label: 'Overview', to: '/iebaseline', icon: Home },
       { label: 'Edit', to: '/iebaseline/edit', icon: Pencil },
+      { label: 'Assign', to: '/iebaseline/assign', icon: UserCheck },
     ],
   },
   {
