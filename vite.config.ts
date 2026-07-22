@@ -116,6 +116,11 @@ export default defineConfig(({ command, mode }) => {
           changeOrigin: true,
           rewrite: (p) => p.replace(/^\/ietools\/cycle-time\/api/, '/api/cycle-time'),
         },
+        '/ietools/iebaseline/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/ietools\/iebaseline\/api/, '/api/iebaseline'),
+        },
         '/ole-api': {
           target: 'http://localhost:8000',
           changeOrigin: true,

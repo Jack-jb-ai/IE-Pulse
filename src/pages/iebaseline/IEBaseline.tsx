@@ -3,8 +3,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { useQuery } from '@tanstack/react-query';
 import { BookOpen, CheckCircle2, Clock, PlayCircle, UserCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { ieBaselineApi, IEBASELINE_DEMO_USER_ID, type IEBaselineHomeAssignment } from './api';
 
 export type ModuleStatus = 'Not Started' | 'In Progress' | 'Completed';
 
@@ -74,6 +76,16 @@ export const MODULES: ModuleData[] = [
 ];
 
 export default function IEBaseline() {
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: ['iebaseline', 'home', IEBASELINE_DEMO_USER_ID],
+    queryFn: () => ieBaselineApi.home.get(IEBASELINE_DEMO_USER_ID),
+  });
+
   const getStatusColorClass = (status: ModuleStatus) => {
     switch (status) {
       case 'Completed': return 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20';
@@ -81,6 +93,25 @@ export default function IEBaseline() {
       case 'Not Started': return 'bg-muted text-muted-foreground hover:bg-muted/80';
     }
   };
+
+  const getActionLabel = (progress: number) => {
+    if (progress === 0) return 'Start Module';
+    if (progress === 100) return 'Review Material';
+    return 'Continue Module';
+  };
+
+  const formatDate = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
+  };
+
+  const assignments = data?.assignments ?? [];
 
   return (
     <div className="space-y-6 px-6 pb-6 pt-32 max-w-7xl mx-auto">
@@ -111,10 +142,19 @@ export default function IEBaseline() {
 
           {/* Table Body */}
           <div className="grid grid-cols-12 gap-4 p-4 w-full items-center text-left text-sm text-foreground">
-            <div className="col-span-3 font-medium">Syed Faiz Alhady Bin Syed Ahmad Alhady</div>
-            <div className="col-span-4">emailsaya@company.com</div>
-            <div className="col-span-3">Industrial Engineering</div>
-            <div className="col-span-2">Engineer 1</div>
+            <div className="col-span-3">
+              <div className="font-medium">{isLoading ? 'Loading...' : data?.user.name ?? 'N/A'}</div>
+              {!isLoading && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  WD ID: {data?.user.wd_id ?? 'N/A'}
+                </div>
+              )}
+            </div>
+            <div className="col-span-4">N/A</div>
+            <div className="col-span-3">N/A</div>
+            <div className="col-span-2">
+              {isLoading ? 'Loading...' : data?.user.position ?? 'N/A'}
+            </div>
           </div>
         </Card>
       </div>
@@ -137,96 +177,147 @@ export default function IEBaseline() {
             <div className="col-span-1 text-right">Action</div>
           </div>
 
-          {/* Accordion Table Body */}
-          <Accordion type="single" collapsible className="w-full">
-            {MODULES.map((mod) => (
-              <AccordionItem value={mod.id} key={mod.id} className="border-b border-border/50 last:border-0">
-                <AccordionTrigger className="hover:no-underline px-4 py-4 hover:bg-muted/20 transition-colors [&[data-state=open]]:bg-muted/10">
-                  <div className="grid grid-cols-12 gap-4 w-full items-center text-left text-sm">
-                    {/* Module Name with Link logic */}
-                    <div className="col-span-5 font-medium text-foreground">
-                      <Link
-                        to={`/iebaseline/module/${mod.id}`}
-                        className="hover:text-primary transition-colors hover:underline underline-offset-4"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {mod.name}
-                      </Link>
-                    </div>
+          {isLoading && (
+            <div className="p-6 text-sm text-muted-foreground">Loading assigned modules...</div>
+          )}
 
-                    {/* Progress */}
-                    <div className="col-span-4 flex items-center gap-3 pr-8">
-                      <Progress
-                        value={mod.progress}
-                        className={`h-2 flex-1 bg-muted ${mod.progress === 100 ? '[&>div]:bg-emerald-500' : ''}`}
-                      />
-                      <span className="text-xs font-medium text-muted-foreground min-w-[3rem] text-right">
-                        {mod.progress}%
-                      </span>
-                    </div>
+          {isError && (
+            <div className="p-6 space-y-2">
+              <p className="text-sm font-medium text-destructive">Unable to load assigned modules.</p>
+              <p className="text-xs text-muted-foreground">
+                {error instanceof Error ? error.message : 'Please check the IE Baseline API and try again.'}
+              </p>
+            </div>
+          )}
 
-                    {/* Status Badge */}
-                    <div className="col-span-2">
-                      <Badge variant="outline" className={`${getStatusColorClass(mod.status)} font-semibold border`}>
-                        {mod.status}
-                      </Badge>
-                    </div>
+          {!isLoading && !isError && assignments.length === 0 && (
+            <div className="p-6 text-sm text-muted-foreground">
+              No IE Baseline modules are assigned to this demo user yet.
+            </div>
+          )}
 
-                    {/* Action Column */}
-                    <div className="col-span-1"></div>
-                  </div>
-                </AccordionTrigger>
-
-                <AccordionContent className="bg-muted/5 border-t border-border/50 px-4 py-6">
-                  <div className="space-y-6 max-w-4xl mx-auto w-full">
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {mod.description}
-                    </p>
-
-                    <div className="space-y-3">
-                      <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Lessons & Exams</h4>
-                      <div className="grid gap-2">
-                        {mod.lessons.map((lesson, idx) => (
-                          <div key={lesson.id} className="flex items-center justify-between p-3 rounded-md bg-background/50 backdrop-blur-sm border border-border/50 hover:border-border transition-colors">
-                            <div className="flex items-center gap-3">
-                              {lesson.completed ? (
-                                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                              ) : (
-                                <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30" />
-                              )}
-                              <span className={`text-sm ${lesson.completed ? 'text-muted-foreground line-through' : 'text-foreground font-medium'}`}>
-                                {idx + 1}. {lesson.title}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <Clock className="w-3.5 h-3.5" />
-                                {lesson.duration}
-                              </span>
-                              {!lesson.completed && (
-                                <Button size="sm" variant="secondary" className="h-8 gap-1.5 bg-background hover:bg-muted">
-                                  <PlayCircle className="w-3.5 h-3.5" />
-                                  Start
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end pt-2">
-                      <Button className="gap-2 shadow-sm">
-                        {mod.progress === 0 ? 'Start Module' : mod.progress === 100 ? 'Review Material' : 'Continue Module'}
-                      </Button>
-                    </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+          {!isLoading && !isError && assignments.length > 0 && (
+            <AssignmentAccordion
+              assignments={assignments}
+              formatDate={formatDate}
+              getActionLabel={getActionLabel}
+              getStatusColorClass={getStatusColorClass}
+            />
+          )}
         </Card>
       </div>
     </div>
+  );
+}
+
+interface AssignmentAccordionProps {
+  assignments: IEBaselineHomeAssignment[];
+  formatDate: (value: string) => string;
+  getActionLabel: (progress: number) => string;
+  getStatusColorClass: (status: ModuleStatus) => string;
+}
+
+function AssignmentAccordion({
+  assignments,
+  formatDate,
+  getActionLabel,
+  getStatusColorClass,
+}: AssignmentAccordionProps) {
+  return (
+    <Accordion type="single" collapsible className="w-full">
+      {assignments.map((assignment) => (
+        <AccordionItem
+          value={String(assignment.assignment_id)}
+          key={assignment.assignment_id}
+          className="border-b border-border/50 last:border-0"
+        >
+          <AccordionTrigger className="hover:no-underline px-4 py-4 hover:bg-muted/20 transition-colors [&[data-state=open]]:bg-muted/10">
+            <div className="grid grid-cols-12 gap-4 w-full items-center text-left text-sm">
+              <div className="col-span-5 font-medium text-foreground">
+                <Link
+                  to={`/iebaseline/module/${assignment.module_id}`}
+                  className="hover:text-primary transition-colors hover:underline underline-offset-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {assignment.module_name}
+                </Link>
+              </div>
+
+              <div className="col-span-4 flex items-center gap-3 pr-8">
+                <Progress
+                  value={assignment.progress}
+                  className={`h-2 flex-1 bg-muted ${assignment.progress === 100 ? '[&>div]:bg-emerald-500' : ''}`}
+                />
+                <span className="text-xs font-medium text-muted-foreground min-w-[3rem] text-right">
+                  {assignment.progress}%
+                </span>
+              </div>
+
+              <div className="col-span-2">
+                <Badge variant="outline" className={`${getStatusColorClass(assignment.status)} font-semibold border`}>
+                  {assignment.status}
+                </Badge>
+              </div>
+
+              <div className="col-span-1"></div>
+            </div>
+          </AccordionTrigger>
+
+          <AccordionContent className="bg-muted/5 border-t border-border/50 px-4 py-6">
+            <div className="space-y-6 max-w-4xl mx-auto w-full">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {assignment.description ?? 'No description available.'}
+              </p>
+
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">Module Details</h4>
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between p-3 rounded-md bg-background/50 backdrop-blur-sm border border-border/50">
+                    <div className="flex items-center gap-3">
+                      {assignment.status === 'Completed' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30" />
+                      )}
+                      <span className="text-sm text-foreground font-medium">
+                        {assignment.question_count} checklist question{assignment.question_count === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="w-3.5 h-3.5" />
+                      Updated {formatDate(assignment.updated_at)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-muted-foreground">
+                    <div className="p-3 rounded-md bg-background/40 border border-border/50">
+                      <span className="block font-semibold text-foreground mb-1">Owner</span>
+                      {assignment.owner_name ?? 'N/A'}
+                    </div>
+                    <div className="p-3 rounded-md bg-background/40 border border-border/50">
+                      <span className="block font-semibold text-foreground mb-1">Assigned By</span>
+                      {assignment.assigned_by?.name ?? 'N/A'}
+                    </div>
+                    <div className="p-3 rounded-md bg-background/40 border border-border/50">
+                      <span className="block font-semibold text-foreground mb-1">Assigned At</span>
+                      {formatDate(assignment.assigned_at)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button className="gap-2 shadow-sm" asChild>
+                  <Link to={`/iebaseline/module/${assignment.module_id}`}>
+                    <PlayCircle className="w-4 h-4" />
+                    {getActionLabel(assignment.progress)}
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
   );
 }
