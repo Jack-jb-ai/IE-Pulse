@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, FileText, Loader2, X } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eraser, FileText, Loader2, Save, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { ieBaselineApi } from '../api';
+import { ieBaselineApi, type IEBaselineAttemptProgress } from '../api';
 
 interface ExamModalProps {
   moduleId: number;
@@ -16,43 +17,245 @@ interface ExamModalProps {
 }
 
 export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalProps) {
+  const queryClient = useQueryClient();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [progress, setProgress] = useState<IEBaselineAttemptProgress | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSaveRequest, setLastSaveRequest] = useState<{ questionId: number; selectedAnswer: string | null } | null>(null);
+  const initializedAttemptId = useRef<number | null>(null);
+
   const {
-    data: questions = [],
-    isLoading,
-    isError,
-    error,
+    data: startData,
+    isLoading: isStarting,
+    isError: isStartError,
+    error: startError,
   } = useQuery({
-    queryKey: ['iebaseline', 'modules', moduleId, 'questions'],
-    queryFn: () => ieBaselineApi.modules.questions.get(moduleId),
+    queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active'],
+    queryFn: () => ieBaselineApi.modules.attempts.start(moduleId),
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 
+  const attemptId = startData?.attempt.attemptId;
+  const {
+    data: attemptQuestionsData,
+    isLoading: isLoadingQuestions,
+    isError: isQuestionsError,
+    error: questionsError,
+  } = useQuery({
+    queryKey: ['iebaseline', 'attempts', attemptId, 'questions'],
+    queryFn: () => ieBaselineApi.attempts.questions.get(attemptId!),
+    enabled: Boolean(attemptId),
+    refetchOnWindowFocus: false,
+  });
+
+  const saveAnswerMutation = useMutation({
+    mutationFn: ({ questionId, selectedAnswer }: { questionId: number; selectedAnswer: string | null }) => {
+      if (!attemptId) throw new Error('Attempt is not ready yet.');
+
+      if (selectedAnswer === null) {
+        return ieBaselineApi.attempts.questions.clearAnswer(attemptId, questionId);
+      }
+
+      return ieBaselineApi.attempts.questions.saveAnswer(attemptId, questionId, { selectedAnswer });
+    },
+    onMutate: (variables) => {
+      setLastSaveRequest(variables);
+    },
+    onSuccess: (data) => {
+      setSaveError(null);
+      setLastSaveRequest(null);
+      setProgress({
+        answeredQuestions: data.answeredQuestions,
+        totalQuestions: data.totalQuestions,
+        progressPercentage: data.progressPercentage,
+        lastSavedAt: data.lastSavedAt,
+      });
+      queryClient.setQueryData(['iebaseline', 'attempts', attemptId, 'questions'], (current: typeof attemptQuestionsData | undefined) => {
+        if (!current) return current;
+
+        return {
+          ...current,
+          progress: {
+            answeredQuestions: data.answeredQuestions,
+            totalQuestions: data.totalQuestions,
+            progressPercentage: data.progressPercentage,
+            lastSavedAt: data.lastSavedAt,
+          },
+          questions: current.questions.map((item) => item.questionId === data.questionId
+            ? {
+                ...item,
+                answer: {
+                  ...item.answer,
+                  selectedAnswer: data.selectedAnswer,
+                  isAnswered: data.isAnswered,
+                  lastSavedAt: data.lastSavedAt,
+                },
+              }
+            : item),
+        };
+      });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Please check the IE Baseline API and try again.';
+      setSaveError(message);
+    },
+  });
+
+  const submitAttemptMutation = useMutation({
+    mutationFn: async () => {
+      await persistCurrentAnswer();
+      if (!attemptId) throw new Error('Attempt is not ready yet.');
+      return ieBaselineApi.attempts.submit(attemptId);
+    },
+    onSuccess: async (data) => {
+      setProgress(data.progress);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
+      ]);
+
+      toast({
+        title: 'Checklist submitted',
+        description: 'Your answers were submitted and are waiting for review.',
+      });
+      onClose();
+    },
+    onError: (error) => {
+      toast({
+        title: 'Unable to submit checklist',
+        description: error instanceof Error ? error.message : 'Please make sure every required question is answered.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const questions = attemptQuestionsData?.questions ?? [];
   const question = questions[currentIndex];
   const options = useMemo(() => parseOptions(question?.options), [question?.options]);
-  const selectedOption = question ? answers[question.id] ?? '' : '';
-  const answeredCount = questions.filter((item) => answers[item.id]).length;
-  const progressPct = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
+  const selectedOption = question ? answers[question.questionId] ?? '' : '';
+  const answeredCount = progress?.answeredQuestions ?? questions.filter((item) => Boolean(answers[item.questionId])).length;
+  const totalQuestions = progress?.totalQuestions ?? questions.length;
+  const progressPct = progress?.progressPercentage ?? (totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0);
+  const isLoading = isStarting || isLoadingQuestions;
+  const isError = isStartError || isQuestionsError;
+  const error = startError ?? questionsError;
+  const isBusy = saveAnswerMutation.isPending || submitAttemptMutation.isPending;
+  const canSubmit = totalQuestions > 0 && answeredCount >= totalQuestions;
+
+  useEffect(() => {
+    if (!attemptQuestionsData || initializedAttemptId.current === attemptQuestionsData.attempt.attemptId) return;
+
+    const savedAnswers = attemptQuestionsData.questions.reduce<Record<number, string>>((current, item) => {
+      if (item.answer.isAnswered && item.answer.selectedAnswer) {
+        current[item.questionId] = item.answer.selectedAnswer;
+      }
+      return current;
+    }, {});
+
+    const firstUnansweredIndex = attemptQuestionsData.questions.findIndex((item) => !item.answer.isAnswered);
+    setAnswers(savedAnswers);
+    setProgress(attemptQuestionsData.progress);
+    setCurrentIndex(firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0);
+    initializedAttemptId.current = attemptQuestionsData.attempt.attemptId;
+  }, [attemptQuestionsData]);
 
   const setSelectedOption = (value: string) => {
     if (!question) return;
     setAnswers((current) => ({
       ...current,
-      [question.id]: value,
+      [question.questionId]: value,
     }));
+    saveAnswerMutation.mutate({ questionId: question.questionId, selectedAnswer: value });
   };
 
-  const goPrevious = () => {
+  const clearSelectedOption = () => {
+    if (!question || !selectedOption) return;
+
+    setAnswers((current) => {
+      const next = { ...current };
+      delete next[question.questionId];
+      return next;
+    });
+    saveAnswerMutation.mutate({ questionId: question.questionId, selectedAnswer: null });
+  };
+
+  const persistCurrentAnswer = async () => {
+    if (!question || !attemptId) return;
+    const answer = answers[question.questionId];
+    if (!answer) return;
+
+    await saveAnswerMutation.mutateAsync({ questionId: question.questionId, selectedAnswer: answer });
+  };
+
+  const goPrevious = async () => {
+    try {
+      await persistCurrentAnswer();
+    } catch {
+      return;
+    }
     setCurrentIndex((value) => Math.max(0, value - 1));
   };
 
-  const goNext = () => {
+  const goNext = async () => {
+    try {
+      await persistCurrentAnswer();
+    } catch {
+      return;
+    }
+
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((value) => value + 1);
       return;
     }
 
-    onClose();
+    submitAttemptMutation.mutate();
+  };
+
+  const handleClose = async () => {
+    try {
+      await persistCurrentAnswer();
+      onClose();
+    } catch {
+      toast({
+        title: 'Unable to save answer',
+        description: 'Fix the autosave error before leaving the checklist.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const renderSaveState = () => {
+    if (saveAnswerMutation.isPending) {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Saving
+        </span>
+      );
+    }
+
+    if (saveError) {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive">
+          <AlertCircle className="w-3.5 h-3.5" />
+          Save failed
+        </span>
+      );
+    }
+
+    if (progress?.lastSavedAt) {
+      return (
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+          <Save className="w-3.5 h-3.5" />
+          Saved
+        </span>
+      );
+    }
+
+    return null;
   };
 
   const modalContent = (
@@ -78,7 +281,7 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
       </div>
 
       <div className="absolute top-3 right-4 lg:right-6 z-[110]">
-        <Button variant="ghost" size="icon" onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 rounded-full">
+        <Button variant="ghost" size="icon" onClick={handleClose} disabled={isBusy} className="text-white/70 hover:text-white hover:bg-white/20 rounded-full">
           <X className="w-6 h-6" />
         </Button>
       </div>
@@ -116,8 +319,8 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
                 <div className="flex flex-wrap items-center gap-2">
                   {question.category && <Badge variant="secondary">{question.category}</Badge>}
                   {question.risk && <Badge variant="outline" className="border-white/20 text-white/70">{question.risk}</Badge>}
-                  {question.question_no !== null && question.question_no !== undefined && (
-                    <Badge variant="outline" className="border-white/20 text-white/70">#{question.question_no}</Badge>
+                  {question.questionNo !== null && question.questionNo !== undefined && (
+                    <Badge variant="outline" className="border-white/20 text-white/70">#{question.questionNo}</Badge>
                   )}
                 </div>
                 <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white leading-tight">
@@ -138,14 +341,35 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
                     <div>
                       <h3 className="text-lg font-bold text-foreground">Select Response</h3>
                       <p className="text-sm text-muted-foreground">
-                        {answeredCount} of {questions.length} answered
+                        {answeredCount} of {totalQuestions} answered
                       </p>
                     </div>
-                    {selectedOption && <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />}
+                    <div className="flex items-center gap-3">
+                      {renderSaveState()}
+                      {selectedOption && <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />}
+                    </div>
                   </div>
 
+                  {saveError && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                      <span>{saveError}</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 border-destructive/30 text-destructive hover:bg-destructive/10"
+                        disabled={!lastSaveRequest || isBusy}
+                        onClick={() => {
+                          if (lastSaveRequest) saveAnswerMutation.mutate(lastSaveRequest);
+                        }}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  )}
+
                   {options.length > 0 ? (
-                    <RadioGroup value={selectedOption} onValueChange={setSelectedOption} className="grid gap-3">
+                    <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={submitAttemptMutation.isPending} className="grid gap-3">
                       {options.map((option) => (
                         <label
                           key={option.id}
@@ -170,21 +394,28 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
                   )}
 
                   <div className="pt-2 flex flex-col sm:flex-row justify-between gap-3">
-                    <Button variant="outline" size="lg" className="gap-2" disabled={currentIndex === 0} onClick={goPrevious}>
+                    <Button variant="outline" size="lg" className="gap-2" disabled={currentIndex === 0 || isBusy} onClick={goPrevious}>
                       <ArrowLeft className="w-4 h-4" />
                       Previous
                     </Button>
-                    <Button size="lg" className="gap-2" disabled={options.length > 0 && !selectedOption} onClick={goNext}>
-                      {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Checklist'}
-                      <ArrowRight className="w-4 h-4" />
-                    </Button>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button variant="outline" size="lg" className="gap-2" disabled={!selectedOption || isBusy} onClick={clearSelectedOption}>
+                        <Eraser className="w-4 h-4" />
+                        Clear
+                      </Button>
+                      <Button size="lg" className="gap-2" disabled={(options.length > 0 && !selectedOption) || isBusy || (currentIndex === questions.length - 1 && !canSubmit)} onClick={goNext}>
+                        {submitAttemptMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                        {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Checklist'}
+                        <ArrowRight className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                 </>
               )}
 
               {!question && (
                 <div className="flex justify-end">
-                  <Button size="lg" onClick={onClose}>Close</Button>
+                  <Button size="lg" onClick={handleClose}>Close</Button>
                 </div>
               )}
             </div>
@@ -211,11 +442,11 @@ function parseOptions(value?: string | null) {
     }));
 }
 
-function QuestionContext({ question }: { question: { keyword: string | null; ibpm_l2: string | null; ibpm_l3: string | null; reference: string | null; memo: string | null } }) {
+function QuestionContext({ question }: { question: { keyword: string | null; ibpmL2: string | null; ibpmL3: string | null; reference: string | null; memo: string | null } }) {
   const items = [
     ['Keyword', question.keyword],
-    ['IBPM L2', question.ibpm_l2],
-    ['IBPM L3', question.ibpm_l3],
+    ['IBPM L2', question.ibpmL2],
+    ['IBPM L3', question.ibpmL3],
     ['Reference', question.reference],
     ['Memo', question.memo],
   ].filter(([, value]) => Boolean(value));

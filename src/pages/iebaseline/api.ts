@@ -85,6 +85,98 @@ export interface IEBaselineUpdateUserModulesResponse {
   unchanged_module_ids: number[];
 }
 
+export type IEBaselineExamAttemptStatus = 'Not Started' | 'In Progress' | 'Submitted' | 'Completed' | 'Abandoned';
+export type IEBaselineExamResultStatus = 'Pending' | 'Passed' | 'Failed';
+
+export interface IEBaselineAttemptProgress {
+  answeredQuestions: number;
+  totalQuestions: number;
+  progressPercentage: number;
+  lastSavedAt: string | null;
+}
+
+export interface IEBaselineAttempt {
+  attemptId: number;
+  moduleId: number;
+  attemptNo: number;
+  attemptStatus: IEBaselineExamAttemptStatus;
+  resultStatus: IEBaselineExamResultStatus;
+  answeredQuestions: number;
+  totalQuestions: number;
+  progressPercentage: number;
+  startedAt: string | null;
+  lastSavedAt: string | null;
+  submittedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface IEBaselineStartAttemptResponse {
+  attempt: IEBaselineAttempt;
+  progress: IEBaselineAttemptProgress;
+}
+
+export interface IEBaselineStartAttemptRequest {
+  userId: number;
+}
+
+export interface IEBaselineAttemptAnswer {
+  answerId: number | null;
+  selectedAnswer: string | null;
+  isAnswered: boolean;
+  isCorrect: boolean | null;
+  scoreAwarded: number | null;
+  maximumScore: number | null;
+  lastSavedAt: string | null;
+}
+
+export interface IEBaselineAttemptQuestion {
+  id: number;
+  questionId: number;
+  moduleId: number;
+  moduleName: string | null;
+  category: string | null;
+  keyword: string | null;
+  ibpmL2: string | null;
+  ibpmL3: string | null;
+  risk: string | null;
+  questionNo: number | string | null;
+  question: string;
+  options: string | null;
+  reference: string | null;
+  memo: string | null;
+  answer: IEBaselineAttemptAnswer;
+}
+
+export interface IEBaselineAttemptQuestionsResponse {
+  attempt: IEBaselineAttempt;
+  progress: IEBaselineAttemptProgress;
+  questions: IEBaselineAttemptQuestion[];
+}
+
+export interface IEBaselineSaveAnswerRequest {
+  selectedAnswer: string | null;
+}
+
+export interface IEBaselineSaveAnswerResponse {
+  attemptId: number;
+  questionId: number;
+  selectedAnswer: string | null;
+  isAnswered: boolean;
+  answeredQuestions: number;
+  totalQuestions: number;
+  progressPercentage: number;
+  lastSavedAt: string;
+}
+
+export interface IEBaselineSubmitAttemptResponse {
+  attempt: IEBaselineAttempt;
+  progress: IEBaselineAttemptProgress;
+}
+
+export interface IEBaselineAttemptHistoryItem extends IEBaselineAttempt {
+  score: number | null;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
 
@@ -103,13 +195,13 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function sendJson<TResponse, TBody>(method: 'PUT' | 'POST' | 'DELETE', path: string, body: TBody): Promise<TResponse> {
+async function sendJson<TResponse, TBody = undefined>(method: 'PUT' | 'POST' | 'DELETE', path: string, body?: TBody): Promise<TResponse> {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: {
+    headers: body === undefined ? undefined : {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -150,5 +242,39 @@ export const ieBaselineApi = {
       get: (moduleId: number) =>
         get<IEBaselineModuleQuestion[]>(`/modules/${encodeURIComponent(String(moduleId))}/questions`),
     },
+    attempts: {
+      start: (moduleId: number, userId = IEBASELINE_DEMO_USER_ID) =>
+        sendJson<IEBaselineStartAttemptResponse, IEBaselineStartAttemptRequest>(
+          'POST',
+          `/modules/${encodeURIComponent(String(moduleId))}/attempts/start`,
+          { userId },
+        ),
+      list: (moduleId: number) =>
+        get<IEBaselineAttemptHistoryItem[]>(`/modules/${encodeURIComponent(String(moduleId))}/attempts`),
+    },
+  },
+  attempts: {
+    get: (attemptId: number) =>
+      get<IEBaselineAttempt>(`/attempts/${encodeURIComponent(String(attemptId))}`),
+    questions: {
+      get: (attemptId: number) =>
+        get<IEBaselineAttemptQuestionsResponse>(`/attempts/${encodeURIComponent(String(attemptId))}/questions`),
+      saveAnswer: (attemptId: number, questionId: number, payload: IEBaselineSaveAnswerRequest) =>
+        sendJson<IEBaselineSaveAnswerResponse, IEBaselineSaveAnswerRequest>(
+          'PUT',
+          `/attempts/${encodeURIComponent(String(attemptId))}/questions/${encodeURIComponent(String(questionId))}/answer`,
+          payload,
+        ),
+      clearAnswer: (attemptId: number, questionId: number) =>
+        sendJson<IEBaselineSaveAnswerResponse>(
+          'DELETE',
+          `/attempts/${encodeURIComponent(String(attemptId))}/questions/${encodeURIComponent(String(questionId))}/answer`,
+        ),
+    },
+    submit: (attemptId: number) =>
+      sendJson<IEBaselineSubmitAttemptResponse>(
+        'POST',
+        `/attempts/${encodeURIComponent(String(attemptId))}/submit`,
+      ),
   },
 };
