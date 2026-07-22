@@ -34,3 +34,4 @@ src/pages/swagger.json
 # Agent context / local docs (not part of the shipped codebase)
 CLAUDE.md
 docs/
+/src/pages/iebaseline/csv
