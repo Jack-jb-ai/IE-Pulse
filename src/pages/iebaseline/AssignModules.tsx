@@ -122,6 +122,11 @@ export default function AssignModules() {
     setDraftModuleIds(new Set());
   };
 
+  const manageUser = (user: IEBaselineUser) => {
+    setSelectedUser(user);
+    setDraftModuleIds(new Set());
+  };
+
   return (
     <div className="space-y-6 px-6 pb-6 pt-32 max-w-7xl mx-auto">
       <div className="flex flex-col gap-2 px-2 md:flex-row md:items-center md:justify-between">
@@ -147,7 +152,7 @@ export default function AssignModules() {
         isError={usersQuery.isError}
         error={usersQuery.error}
         selectedUserId={selectedUser?.user_id}
-        onManage={setSelectedUser}
+        onManage={manageUser}
       />
 
       {selectedUser && (
