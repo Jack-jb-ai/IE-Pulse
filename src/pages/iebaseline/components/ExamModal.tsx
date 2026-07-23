@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eraser, FileText, Loader2, Save, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eraser, FileText, Loader2, Save, Trophy, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { ieBaselineApi, type IEBaselineAttemptProgress } from '../api';
+import { ieBaselineApi, type IEBaselineAttempt, type IEBaselineAttemptAnswer, type IEBaselineAttemptProgress } from '../api';
 
 interface ExamModalProps {
   moduleId: number;
   moduleName: string;
   onClose: () => void;
+  reviewOnly?: boolean;
 }
 
-export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalProps) {
+export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = false }: ExamModalProps) {
   const queryClient = useQueryClient();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -33,11 +34,28 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
   } = useQuery({
     queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active'],
     queryFn: () => ieBaselineApi.modules.attempts.start(moduleId),
+    enabled: !reviewOnly,
     refetchOnWindowFocus: false,
     retry: false,
   });
 
-  const attemptId = startData?.attempt.attemptId;
+  const {
+    data: attemptHistory = [],
+    isLoading: isLoadingHistory,
+    isError: isHistoryError,
+    error: historyError,
+  } = useQuery({
+    queryKey: ['iebaseline', 'modules', moduleId, 'attempts'],
+    queryFn: () => ieBaselineApi.modules.attempts.list(moduleId),
+    enabled: reviewOnly,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
+  const reviewAttempt = useMemo(() => getLatestReviewAttempt(attemptHistory), [attemptHistory]);
+  const activeAttempt = reviewOnly ? reviewAttempt : startData?.attempt;
+  const attemptId = activeAttempt?.attemptId;
+
   const {
     data: attemptQuestionsData,
     isLoading: isLoadingQuestions,
@@ -53,6 +71,7 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
   const saveAnswerMutation = useMutation({
     mutationFn: ({ questionId, selectedAnswer }: { questionId: number; selectedAnswer: string | null }) => {
       if (!attemptId) throw new Error('Attempt is not ready yet.');
+      if (reviewOnly) throw new Error('Completed attempts are read-only.');
 
       if (selectedAnswer === null) {
         return ieBaselineApi.attempts.questions.clearAnswer(attemptId, questionId);
@@ -115,13 +134,16 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts'] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
       ]);
 
+      const scoreText = formatScore(data.attempt.score);
       toast({
-        title: 'Checklist submitted',
-        description: 'Your answers were submitted and are waiting for review.',
+        title: 'Checklist scored',
+        description: scoreText
+          ? `Your answers were scored. Score: ${scoreText}.`
+          : 'Your answers were submitted and scored.',
       });
-      onClose();
     },
     onError: (error) => {
       toast({
@@ -133,15 +155,17 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
   });
 
   const questions = attemptQuestionsData?.questions ?? [];
+  const attempt = attemptQuestionsData?.attempt ?? activeAttempt;
   const question = questions[currentIndex];
   const options = useMemo(() => parseOptions(question?.options), [question?.options]);
   const selectedOption = question ? answers[question.questionId] ?? '' : '';
   const answeredCount = progress?.answeredQuestions ?? questions.filter((item) => Boolean(answers[item.questionId])).length;
   const totalQuestions = progress?.totalQuestions ?? questions.length;
   const progressPct = progress?.progressPercentage ?? (totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0);
-  const isLoading = isStarting || isLoadingQuestions;
-  const isError = isStartError || isQuestionsError;
-  const error = startError ?? questionsError;
+  const isReviewMode = reviewOnly || (attempt ? attempt.attemptStatus !== 'In Progress' : false);
+  const isLoading = (reviewOnly ? isLoadingHistory : isStarting) || isLoadingQuestions;
+  const isError = (reviewOnly ? isHistoryError : isStartError) || isQuestionsError;
+  const error = (reviewOnly ? historyError : startError) ?? questionsError;
   const isBusy = saveAnswerMutation.isPending || submitAttemptMutation.isPending;
   const canSubmit = totalQuestions > 0 && answeredCount >= totalQuestions;
 
@@ -163,7 +187,7 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
   }, [attemptQuestionsData]);
 
   const setSelectedOption = (value: string) => {
-    if (!question) return;
+    if (!question || isReviewMode) return;
     setAnswers((current) => ({
       ...current,
       [question.questionId]: value,
@@ -172,7 +196,7 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
   };
 
   const clearSelectedOption = () => {
-    if (!question || !selectedOption) return;
+    if (!question || !selectedOption || isReviewMode) return;
 
     setAnswers((current) => {
       const next = { ...current };
@@ -183,7 +207,7 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
   };
 
   const persistCurrentAnswer = async () => {
-    if (!question || !attemptId) return;
+    if (!question || !attemptId || isReviewMode) return;
     const answer = answers[question.questionId];
     if (!answer) return;
 
@@ -211,6 +235,7 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
       return;
     }
 
+    if (isReviewMode) return;
     submitAttemptMutation.mutate();
   };
 
@@ -309,8 +334,12 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
             {!isLoading && !isError && questions.length === 0 && (
               <div className="space-y-4 text-white">
                 <FileText className="w-10 h-10 text-white/60" />
-                <h2 className="text-3xl md:text-4xl font-bold">No Checklist Questions</h2>
-                <p className="text-white/70 text-lg">This module exists, but no checklist rows are available yet.</p>
+                <h2 className="text-3xl md:text-4xl font-bold">{reviewOnly ? 'No Completed Attempt' : 'No Checklist Questions'}</h2>
+                <p className="text-white/70 text-lg">
+                  {reviewOnly
+                    ? 'There is no scored attempt available to review yet.'
+                    : 'This module exists, but no checklist rows are available yet.'}
+                </p>
               </div>
             )}
 
@@ -339,18 +368,22 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
                 <>
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <h3 className="text-lg font-bold text-foreground">Select Response</h3>
+                      <h3 className="text-lg font-bold text-foreground">{isReviewMode ? 'Review Response' : 'Select Response'}</h3>
                       <p className="text-sm text-muted-foreground">
                         {answeredCount} of {totalQuestions} answered
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                      {renderSaveState()}
+                      {!isReviewMode && renderSaveState()}
                       {selectedOption && <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />}
                     </div>
                   </div>
 
-                  {saveError && (
+                  {isReviewMode && attempt && (
+                    <ScoreSummary attempt={attempt} />
+                  )}
+
+                  {!isReviewMode && saveError && (
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                       <span>{saveError}</span>
                       <Button
@@ -369,15 +402,16 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
                   )}
 
                   {options.length > 0 ? (
-                    <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={submitAttemptMutation.isPending} className="grid gap-3">
+                    <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={isReviewMode || submitAttemptMutation.isPending} className="grid gap-3">
                       {options.map((option) => (
                         <label
                           key={option.id}
                           className={cn(
-                            'flex items-center space-x-4 p-5 rounded-xl border-2 transition-all cursor-pointer select-none group',
+                            'flex items-center space-x-4 p-5 rounded-xl border-2 transition-all select-none group',
+                            isReviewMode ? 'cursor-default' : 'cursor-pointer',
                             selectedOption === option.value
                               ? 'border-primary bg-primary/5'
-                              : 'border-border hover:border-primary/50 bg-background/50 hover:bg-muted/50',
+                              : cn('border-border bg-background/50', !isReviewMode && 'hover:border-primary/50 hover:bg-muted/50'),
                           )}
                         >
                           <RadioGroupItem value={option.value} id={option.id} className="mt-0.5 data-[state=checked]:border-primary" />
@@ -393,19 +427,30 @@ export default function ExamModal({ moduleId, moduleName, onClose }: ExamModalPr
                     </div>
                   )}
 
+                  {isReviewMode && question.answer.isAnswered && (
+                    <AnswerScore answer={question.answer} />
+                  )}
+
                   <div className="pt-2 flex flex-col sm:flex-row justify-between gap-3">
                     <Button variant="outline" size="lg" className="gap-2" disabled={currentIndex === 0 || isBusy} onClick={goPrevious}>
                       <ArrowLeft className="w-4 h-4" />
                       Previous
                     </Button>
                     <div className="flex flex-col sm:flex-row gap-3">
-                      <Button variant="outline" size="lg" className="gap-2" disabled={!selectedOption || isBusy} onClick={clearSelectedOption}>
-                        <Eraser className="w-4 h-4" />
-                        Clear
-                      </Button>
-                      <Button size="lg" className="gap-2" disabled={(options.length > 0 && !selectedOption) || isBusy || (currentIndex === questions.length - 1 && !canSubmit)} onClick={goNext}>
+                      {!isReviewMode && (
+                        <Button variant="outline" size="lg" className="gap-2" disabled={!selectedOption || isBusy} onClick={clearSelectedOption}>
+                          <Eraser className="w-4 h-4" />
+                          Clear
+                        </Button>
+                      )}
+                      <Button
+                        size="lg"
+                        className="gap-2"
+                        disabled={(options.length > 0 && !selectedOption) || isBusy || (currentIndex === questions.length - 1 && !isReviewMode && !canSubmit)}
+                        onClick={currentIndex === questions.length - 1 && isReviewMode ? onClose : goNext}
+                      >
                         {submitAttemptMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Checklist'}
+                        {currentIndex < questions.length - 1 ? 'Next Question' : isReviewMode ? 'Close Review' : 'Finish Checklist'}
                         <ArrowRight className="w-4 h-4" />
                       </Button>
                     </div>
@@ -440,6 +485,75 @@ function parseOptions(value?: string | null) {
       label,
       value: label,
     }));
+}
+
+function getLatestReviewAttempt(attempts: IEBaselineAttempt[]) {
+  return attempts
+    .filter((attempt) => attempt.attemptStatus === 'Completed' || attempt.attemptStatus === 'Submitted')
+    .sort((left, right) => getAttemptSortTime(right) - getAttemptSortTime(left))[0];
+}
+
+function getAttemptSortTime(attempt: IEBaselineAttempt) {
+  const value = attempt.completedAt ?? attempt.submittedAt ?? attempt.lastSavedAt ?? attempt.startedAt;
+  if (!value) return 0;
+
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function formatScore(value: number | null | undefined) {
+  if (value === null || value === undefined) return null;
+
+  return `${Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+function formatPoints(value: number | null | undefined) {
+  if (value === null || value === undefined) return 'Pending';
+
+  return Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+}
+
+function ScoreSummary({ attempt }: { attempt: IEBaselineAttempt }) {
+  const scoreText = formatScore(attempt.score);
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+      <div className="sm:col-span-1 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center">
+          <Trophy className="w-5 h-5 text-emerald-600" />
+        </div>
+        <div>
+          <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Score</span>
+          <span className="text-lg font-bold text-foreground">{scoreText ?? 'Pending'}</span>
+        </div>
+      </div>
+      <div>
+        <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Correct</span>
+        <span className="text-sm font-semibold text-foreground">{attempt.correctAnswers} of {attempt.totalQuestions}</span>
+      </div>
+      <div>
+        <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
+        <span className="text-sm font-semibold text-foreground">{attempt.attemptStatus}</span>
+      </div>
+    </div>
+  );
+}
+
+function AnswerScore({ answer }: { answer: IEBaselineAttemptAnswer }) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium text-muted-foreground">Awarded points</span>
+        <span className="font-semibold text-foreground">
+          {formatPoints(answer.scoreAwarded)} / {formatPoints(answer.maximumScore)}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function QuestionContext({ question }: { question: { keyword: string | null; ibpmL2: string | null; ibpmL3: string | null; reference: string | null; memo: string | null } }) {

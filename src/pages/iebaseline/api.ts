@@ -103,6 +103,8 @@ export interface IEBaselineAttempt {
   resultStatus: IEBaselineExamResultStatus;
   answeredQuestions: number;
   totalQuestions: number;
+  correctAnswers: number;
+  score: number | null;
   progressPercentage: number;
   startedAt: string | null;
   lastSavedAt: string | null;
@@ -173,9 +175,8 @@ export interface IEBaselineSubmitAttemptResponse {
   progress: IEBaselineAttemptProgress;
 }
 
-export interface IEBaselineAttemptHistoryItem extends IEBaselineAttempt {
-  score: number | null;
-}
+export type IEBaselineAttemptHistoryItem = IEBaselineAttempt;
+type IEBaselineAttemptHistoryResponse = IEBaselineAttemptHistoryItem[] | { attempts: IEBaselineAttemptHistoryItem[] };
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
@@ -249,8 +250,13 @@ export const ieBaselineApi = {
           `/modules/${encodeURIComponent(String(moduleId))}/attempts/start`,
           { userId },
         ),
-      list: (moduleId: number) =>
-        get<IEBaselineAttemptHistoryItem[]>(`/modules/${encodeURIComponent(String(moduleId))}/attempts`),
+      list: async (moduleId: number, userId = IEBASELINE_DEMO_USER_ID) => {
+        const data = await get<IEBaselineAttemptHistoryResponse>(
+          `/modules/${encodeURIComponent(String(moduleId))}/attempts?user_id=${encodeURIComponent(String(userId))}`,
+        );
+
+        return Array.isArray(data) ? data : data.attempts;
+      },
     },
   },
   attempts: {

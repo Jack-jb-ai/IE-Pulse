@@ -286,6 +286,7 @@ export default function ModuleOverview() {
         <ExamModal
           moduleId={assignment.module_id}
           moduleName={assignment.module_name}
+          reviewOnly={isCompleted}
           onClose={() => setActiveExam(null)}
         />
       )}
