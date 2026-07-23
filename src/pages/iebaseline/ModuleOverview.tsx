@@ -14,15 +14,18 @@ import {
   Clock,
   FileText,
   PlayCircle,
+  RotateCcw,
   Trophy,
   UserCircle,
 } from 'lucide-react';
 import { ieBaselineApi, IEBASELINE_DEMO_USER_ID } from './api';
 import ExamModal from './components/ExamModal';
 
+type ActiveExamMode = 'start' | 'review' | 'retake';
+
 export default function ModuleOverview() {
   const { moduleId } = useParams<{ moduleId: string }>();
-  const [activeExam, setActiveExam] = useState<string | null>(null);
+  const [activeExam, setActiveExam] = useState<ActiveExamMode | null>(null);
   const {
     data,
     isLoading,
@@ -173,7 +176,7 @@ export default function ModuleOverview() {
                       variant="ghost"
                       size="icon"
                       className="rounded-full opacity-0 group-hover:opacity-100 transition-opacity text-primary hover:bg-primary/10 hover:text-primary"
-                      onClick={() => setActiveExam('course-start')}
+                      onClick={() => setActiveExam('start')}
                     >
                       <PlayCircle className="w-6 h-6" />
                     </Button>
@@ -241,10 +244,32 @@ export default function ModuleOverview() {
               </div>
 
               <div className="p-6 space-y-6">
-                <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('course-start')}>
-                  {isCompleted ? 'Review Module' : 'Start Module'}
-                  <PlayCircle className="w-5 h-5" />
-                </Button>
+                {isCompleted ? (
+                  <div className="grid gap-3">
+                    <Button
+                      className="w-full h-12 text-md font-semibold gap-2 shadow-sm"
+                      size="lg"
+                      onClick={() => setActiveExam('review')}
+                    >
+                      Review Module
+                      <PlayCircle className="w-5 h-5" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full h-12 text-md font-semibold gap-2"
+                      size="lg"
+                      onClick={() => setActiveExam('retake')}
+                    >
+                      Retake Module
+                      <RotateCcw className="w-5 h-5" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('start')}>
+                    Start Module
+                    <PlayCircle className="w-5 h-5" />
+                  </Button>
+                )}
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-sm">
@@ -286,7 +311,7 @@ export default function ModuleOverview() {
         <ExamModal
           moduleId={assignment.module_id}
           moduleName={assignment.module_name}
-          reviewOnly={isCompleted}
+          reviewOnly={activeExam === 'review'}
           onClose={() => setActiveExam(null)}
         />
       )}

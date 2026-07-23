@@ -24,6 +24,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
   const [progress, setProgress] = useState<IEBaselineAttemptProgress | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSaveRequest, setLastSaveRequest] = useState<{ questionId: number; selectedAnswer: string | null } | null>(null);
+  const [savedState, setSavedState] = useState<{ attemptId: number; lastSavedAt: string } | null>(null);
   const initializedAttemptId = useRef<number | null>(null);
 
   const {
@@ -85,6 +86,9 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     onSuccess: (data) => {
       setSaveError(null);
       setLastSaveRequest(null);
+      if (attemptId) {
+        setSavedState({ attemptId, lastSavedAt: data.lastSavedAt });
+      }
       setProgress({
         answeredQuestions: data.answeredQuestions,
         totalQuestions: data.totalQuestions,
@@ -130,13 +134,6 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     },
     onSuccess: async (data) => {
       setProgress(data.progress);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts'] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
-      ]);
-
       const scoreText = formatScore(data.attempt.score);
       toast({
         title: 'Checklist scored',
@@ -144,6 +141,15 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
           ? `Your answers were scored. Score: ${scoreText}.`
           : 'Your answers were submitted and scored.',
       });
+      onClose();
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active'], refetchType: 'none' }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
+      ]);
     },
     onError: (error) => {
       toast({
@@ -181,8 +187,20 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     }, {});
 
     const firstUnansweredIndex = attemptQuestionsData.questions.findIndex((item) => !item.answer.isAnswered);
+    const hasSavedAnswer = attemptQuestionsData.questions.some((item) => item.answer.isAnswered && item.answer.lastSavedAt);
+
     setAnswers(savedAnswers);
     setProgress(attemptQuestionsData.progress);
+    setSaveError(null);
+    setLastSaveRequest(null);
+    setSavedState(
+      attemptQuestionsData.progress.lastSavedAt && hasSavedAnswer
+        ? {
+            attemptId: attemptQuestionsData.attempt.attemptId,
+            lastSavedAt: attemptQuestionsData.progress.lastSavedAt,
+          }
+        : null,
+    );
     setCurrentIndex(firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0);
     initializedAttemptId.current = attemptQuestionsData.attempt.attemptId;
   }, [attemptQuestionsData]);
@@ -272,7 +290,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
       );
     }
 
-    if (progress?.lastSavedAt) {
+    if (attemptId && savedState?.attemptId === attemptId && savedState.lastSavedAt) {
       return (
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600">
           <Save className="w-3.5 h-3.5" />
