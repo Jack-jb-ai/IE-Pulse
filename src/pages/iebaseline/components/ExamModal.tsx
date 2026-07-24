@@ -562,12 +562,14 @@ function ScoreSummary({ attempt }: { attempt: IEBaselineAttempt }) {
 }
 
 function AnswerScore({ answer }: { answer: IEBaselineAttemptAnswer }) {
+  const isExcluded = answer.isAnswered && answer.scoreAwarded === null && answer.maximumScore === null;
+
   return (
     <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium text-muted-foreground">Awarded points</span>
         <span className="font-semibold text-foreground">
-          {formatPoints(answer.scoreAwarded)} / {formatPoints(answer.maximumScore)}
+          {isExcluded ? 'Excluded' : `${formatPoints(answer.scoreAwarded)} / ${formatPoints(answer.maximumScore)}`}
         </span>
       </div>
     </div>

@@ -1,5 +1,64 @@
 # IE Baseline Progress
 
+## 2026-07-24 - NA Applicability Scoring Clarification
+
+Verified the IE Baseline checklist NA / non-applicable answer behavior after
+backend scoring changes.
+
+### Confirmed
+
+- The frontend saves the full selected option text in `selectedAnswer`, such as:
+  - `Yes - Complete BOMs received and shared by customer thru Jabil EC Coordinator team.`
+  - `NA - No VA needed for this product.`
+- The frontend does not convert selected NA answers to `null`.
+- Selected NA answers remain answered. Saved/submitted NA rows should keep
+  `is_answered = true`.
+- The final score remains backend-owned. The frontend uses backend `attempt.score`
+  from submit/latest-result responses.
+
+### Verified Data Issue
+
+- A DB check found current `N/A` scoring options with:
+
+```text
+option_value = N/A
+score_multiplier = 0.0000
+is_applicable = true
+```
+
+- With `is_applicable = true`, selected NA answers are scored as
+  `0.00 / available_points`, which lowers the final score.
+- This is different from exclusion. `score_multiplier = 0` means zero credit
+  when the option is still applicable.
+
+### Required Backend/Data Fix
+
+- For NA/N/A options that mean "not applicable", update the matching
+  `scoring_metric_option` rows to:
+
+```text
+is_applicable = false
+```
+
+- After submit, excluded NA answers should store:
+
+```text
+selected_answer = "NA - ..."
+is_answered = true
+score_awarded = NULL
+maximum_score = NULL
+```
+
+- Other zero-score options such as `No` should stay `is_applicable = true`.
+
+### Optional DB Verification
+
+```sql
+SELECT option_value, score_multiplier, is_applicable
+FROM scoring_metric_option
+WHERE UPPER(REPLACE(option_value, '/', '')) = 'NA';
+```
+
 ## 2026-07-22 - Home Page API Integration
 
 The IE Baseline learner home page has been connected to the new backend home endpoint.

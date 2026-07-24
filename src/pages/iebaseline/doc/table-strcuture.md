@@ -1492,17 +1492,24 @@ The scoring configuration uses the following structures:
 * Existing questions default to **1 point**.
 * Different questions may be assigned different weights.
 * The final awarded score is calculated by multiplying `available_points` with the selected option's `score_multiplier`.
-* If the selected scoring option has `is_applicable = false`, the question is excluded from scoring and its available points are not included in the final denominator.
+* `is_applicable = true` means the selected option is included in scoring and contributes to `maximum_score`.
+* `is_applicable = false` means the selected option is excluded from scoring and its available points are not included in the final denominator.
+* `score_multiplier = 0` with `is_applicable = true` means zero credit, not exclusion.
 
 Example:
 
-| available_points | Selected Option | Multiplier | Awarded Score |
-|-----------------|----------------|-----------:|--------------:|
-| 1 | Yes | 1.0 | 1.0 |
-| 1 | Partial | 0.5 | 0.5 |
-| 1 | No | 0.0 | 0.0 |
-| 5 | Partial | 0.5 | 2.5 |
-| 5 | NA | 0.0 | Excluded |
+| available_points | Selected Option | Multiplier | is_applicable | Stored Score |
+|-----------------|----------------|-----------:|---------------|--------------|
+| 1 | Yes | 1.0 | true | 1.0 / 1.0 |
+| 1 | Partial | 0.5 | true | 0.5 / 1.0 |
+| 1 | No | 0.0 | true | 0.0 / 1.0 |
+| 5 | Partial | 0.5 | true | 2.5 / 5.0 |
+| 5 | N/A | 0.0 | false | NULL / NULL |
+
+Warning: rows such as `"N/A" 0.0000 true` are scored as `0.00 / available_points`.
+That lowers the final score. If `N/A` or `NA - ...` means the question is not
+applicable, the matching `scoring_metric_option` row must use
+`is_applicable = false`.
 
 ---
 
@@ -1567,23 +1574,24 @@ No
 | `scoring_metric_id` | `BIGINT` | Foreign key | Parent scoring metric. |
 | `option_value` | `VARCHAR(255)` | Not null | Display value shown to users. |
 | `score_multiplier` | `NUMERIC(10,4)` | >= 0 | Multiplier applied to the question's available points. |
-| `is_applicable` | `BOOLEAN` | Default TRUE | Indicates whether this option contributes to scoring. |
+| `is_applicable` | `BOOLEAN` | Default TRUE | Indicates whether this option contributes to scoring. `true` includes the question in `maximum_score`; `false` excludes it and stores null answer scores. |
 | `created_at` | `TIMESTAMPTZ` | Default current timestamp | Record creation timestamp. |
 | `updated_at` | `TIMESTAMPTZ` | Default current timestamp | Record update timestamp. |
 
 ### Example
 
-| Option | Multiplier |
-|---------|-----------:|
-| Yes | 1.0000 |
-| Partial | 0.5000 |
-| No | 0.0000 |
-| N/A | 0.0000 |
+| Option | Multiplier | is_applicable | Meaning |
+|---------|-----------:|---------------|---------|
+| Yes | 1.0000 | true | Full credit |
+| Partial | 0.5000 | true | Partial credit |
+| No | 0.0000 | true | Zero credit, still scored |
+| N/A | 0.0000 | false | Excluded from scoring |
 
 ### Notes
 
 * `score_multiplier` may be greater than 1 if bonus scoring is desired.
-* `is_applicable` allows options such as "N/A" to exist without affecting certain calculations.
+* `is_applicable` allows options such as "N/A" to exist without affecting score calculations.
+* For submitted `N/A` answers, `user_exam_answer.is_answered` should remain `true`; only `score_awarded` and `maximum_score` become `NULL` when `is_applicable = false`.
 * Each option must be unique within the same scoring metric.
 
 ---
