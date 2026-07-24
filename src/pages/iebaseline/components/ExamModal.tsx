@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eraser, FileText, Loader2, Save, Trophy, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +20,7 @@ interface ExamModalProps {
 
 export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = false }: ExamModalProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [progress, setProgress] = useState<IEBaselineAttemptProgress | null>(null);
@@ -140,7 +142,6 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
           ? `Your answers were scored. Score: ${scoreText}.`
           : 'Your answers were submitted and scored.',
       });
-      onClose();
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
@@ -149,6 +150,11 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
       ]);
+
+      onClose();
+      navigate(`/iebaseline/module/${moduleId}/results`, {
+        state: { submitResult: data },
+      });
     },
     onError: (error) => {
       toast({

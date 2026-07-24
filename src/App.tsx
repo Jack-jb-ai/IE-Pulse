@@ -24,6 +24,7 @@ import FsmsPlants from "@/pages/fsms/FsmsPlants";
 import FsmsSubmissions from "@/pages/fsms/FsmsSubmissions";
 import GlobalOverview from "@/pages/GlobalOverview";
 import AssignModules from "@/pages/iebaseline/AssignModules";
+import FinalResults from "@/pages/iebaseline/FinalResults";
 import IEBaseline from "@/pages/iebaseline/IEBaseline";
 import IEBaselineEdit from "@/pages/iebaseline/IEBaselineEdit";
 import ModuleAdmin from "@/pages/iebaseline/ModuleAdmin";
@@ -197,6 +198,7 @@ function AppShell() {
               <Route path="/iebaseline" element={<IEBaseline />} />
               <Route path="/iebaseline/edit" element={<IEBaselineEdit />} />
               <Route path="/iebaseline/assign" element={<AssignModules />} />
+              <Route path="/iebaseline/module/:moduleId/results" element={<FinalResults />} />
               <Route path="/iebaseline/module/:moduleId" element={<ModuleOverview />} />
               <Route path="/iebaseline/admin/:moduleId" element={<ModuleAdmin />} />
             </>}
