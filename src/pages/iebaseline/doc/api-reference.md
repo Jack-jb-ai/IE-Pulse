@@ -920,8 +920,10 @@ The backend should:
 * Match scoring options against the selected answer's leading label before `-`
   when checklist options store descriptive labels such as `Yes - ...`.
 * Calculate each answer using `baseline_checklist.available_points * scoring_metric_option.score_multiplier`.
-* Treat unanswered or `null` answers as N/A with `0` awarded score.
-* Mark submitted null/N/A answer rows as answered after scoring.
+* Treat unanswered or `null` answers as `0` awarded score against the question's available points.
+* Treat selected options with `scoring_metric_option.is_applicable = false` as excluded from scoring.
+  These rows remain answered, but store `score_awarded` and `maximum_score` as `null`.
+* Mark submitted null and non-applicable answer rows as answered after scoring.
 * Store `is_correct`, `score_awarded`, and `maximum_score` on `user_exam_answer`.
 * Keep `is_correct` as `null` for modules that do not have a configured correct-answer key.
 * Store `score`, `correct_answers`, `submitted_at`, and `completed_at` on `user_exam_attempt`.

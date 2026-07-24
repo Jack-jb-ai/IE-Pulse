@@ -365,6 +365,7 @@ Table name: `baseline_checklist`
 | `options` | text | text | Combined from `Yes`, `No`, `Partial`, `NA`; fallback: `options` |
 | `reference` | text | text | `reference`, `Additional Information / Procedure & Documentation Reference` |
 | `memo` | text | text | `memo`, `notes`, `question notes`, `remarks` |
+| `available_points` | numeric(10,2) | numeric(10,2) | `Available Points`, `available points`, `available_points` |
 
 ## Table - Module Master
 
@@ -1491,6 +1492,7 @@ The scoring configuration uses the following structures:
 * Existing questions default to **1 point**.
 * Different questions may be assigned different weights.
 * The final awarded score is calculated by multiplying `available_points` with the selected option's `score_multiplier`.
+* If the selected scoring option has `is_applicable = false`, the question is excluded from scoring and its available points are not included in the final denominator.
 
 Example:
 
@@ -1500,6 +1502,7 @@ Example:
 | 1 | Partial | 0.5 | 0.5 |
 | 1 | No | 0.0 | 0.0 |
 | 5 | Partial | 0.5 | 2.5 |
+| 5 | NA | 0.0 | Excluded |
 
 ---
 
@@ -1631,6 +1634,11 @@ available_points
 ×
 score_multiplier
 ```
+
+If the selected option has `is_applicable = false`, the backend stores `NULL`
+for both `score_awarded` and `maximum_score` on `user_exam_answer`. The final
+attempt percentage excludes that question because totals sum only non-null
+scored values.
 
 Example:
 
