@@ -960,6 +960,12 @@ Current frontend behavior:
   so refreshes and direct links can load the latest submitted result. This
   endpoint is required for reliable Final Results page behavior outside the
   immediate post-submit navigation.
+* Calls `GET /api/iebaseline/home?user_id={user_id}` for user and module
+  display context. The backend contract path is `/api/iebaseline/home`; the
+  frontend may call it through a mounted/proxied path such as
+  `/ietools/iebaseline/api/home`.
+* Uses `user.name` for the display name, `user.position` for the role/title, and
+  the matching `assignments[].module_name` for the current module label.
 * Displays `Pending` when the backend returns `resultStatus: "Pending"`.
 * Does not calculate pass/fail from `score` in React.
 
@@ -987,6 +993,8 @@ Future backend requirement:
 
 Lists attempts for one user/module.
 
+Status: **Implemented**
+
 This endpoint is required by the frontend Final Results page for refresh,
 direct-link, and new-tab support. Immediately after submit, the frontend can
 render from the `POST /api/iebaseline/attempts/{attempt_id}/submit` response
@@ -998,7 +1006,17 @@ only has `{module_id}` from the route and must call this endpoint with
 
 The frontend selects the latest attempt where `attemptStatus` is `Completed` or
 `Submitted`, ordered by `completedAt`, then `submittedAt`, then `lastSavedAt`,
-then `startedAt`.
+then `startedAt`. The frontend does not need to apply `attemptNo` as a
+tie-breaker.
+
+The backend now returns attempts in compatible order:
+
+1. `Completed` or `Submitted` attempts first.
+2. Newest `completedAt`.
+3. Newest `submittedAt`.
+4. Newest `lastSavedAt`.
+5. Newest `startedAt`.
+6. Highest `attemptNo` as a deterministic server-side final tie-breaker.
 
 ### Request
 
