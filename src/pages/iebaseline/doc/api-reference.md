@@ -149,15 +149,18 @@ CREATE TYPE checklist_status AS ENUM (
 `In Progress` is derived from latest-attempt progress; it is not stored in
 `user_checklist_status.status`.
 
-| Latest attempt state | Database `raw_status` | API `status` | `progress` |
+| Latest attempt state | Typical database `raw_status` | API `status` | `progress` |
 | --- | --- | --- | --- |
 | No attempt exists | `Incomplete` | `Not Started` | `0` |
 | Latest attempt exists and has fewer answered questions than total questions | `Incomplete` | `In Progress` | `0..99` |
-| Latest attempt has answered questions equal to total questions | `Completed` | `Completed` | `100` |
+| Latest attempt has answered questions equal to total questions | `Completed` after submit; may still be `Incomplete` before submit | `Completed` | `100` |
 
 The backend may keep `raw_status` synchronized with completion by storing
 `Completed` only when the module is complete and `Incomplete` otherwise. It
 must never store `In Progress` in `user_checklist_status.status`.
+
+Frontend clients should use `assignments[].status` and `assignments[].progress`
+for display. `raw_status` is exposed only as the stored assignment value.
 
 ### Response Fields
 
@@ -630,6 +633,9 @@ POST /api/iebaseline/modules/3/attempts/start?user_id=1
   history and attempt questions.
 * Allow a new editable attempt even when the related assignment status is
   already `Completed`.
+* When creating a fresh editable retake for an assignment whose stored status is
+  `Completed`, reset `user_checklist_status.status` to `Incomplete` so the home
+  endpoint's `raw_status` reflects the active retake.
 * After `POST /api/iebaseline/attempts/{attempt_id}/submit`, the frontend may
   immediately call this start endpoint again for a retake. The backend must
   return a fresh `In Progress` attempt rather than the just-completed attempt.
