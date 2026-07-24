@@ -2,7 +2,7 @@ export const IEBASELINE_DEMO_USER_ID = 1;
 
 const BASE = '/ietools/iebaseline/api';
 
-export type IEBaselineHomeStatus = 'Not Started' | 'Completed';
+export type IEBaselineHomeStatus = 'Not Started' | 'In Progress' | 'Completed';
 export type IEBaselineRawChecklistStatus = 'Incomplete' | 'Completed';
 
 export interface IEBaselineHomeUser {
@@ -24,7 +24,7 @@ export interface IEBaselineHomeAssignment {
   } | null;
   status: IEBaselineHomeStatus;
   raw_status: IEBaselineRawChecklistStatus;
-  progress: 0 | 100;
+  progress: number;
   assigned_at: string;
   updated_at: string;
   question_count: number;

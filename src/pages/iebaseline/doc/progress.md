@@ -1,5 +1,51 @@
 # IE Baseline Progress
 
+## 2026-07-24 - Home Page Latest Attempt Progress Contract
+
+Updated the learner home page contract so assignment progress can reflect the
+most recent attempt instead of only the stored assignment completion enum.
+
+### Updated
+
+- Frontend home assignment status now supports:
+
+```text
+Not Started
+In Progress
+Completed
+```
+
+- Frontend home assignment progress now accepts any numeric percentage from
+  `0` to `100`.
+- `GET /api/iebaseline/home?user_id={user_id}` is now documented to derive
+  progress from the latest `user_exam_attempt` using answered rows in
+  `user_exam_answer` where `is_answered = true`.
+- The homepage CTA treats an `In Progress` assignment with `0%` progress as
+  resumable and shows `Continue Module`.
+
+### Backend Requirements
+
+- Keep `user_checklist_status.status` unchanged as the raw DB enum:
+
+```text
+Incomplete
+Completed
+```
+
+- Do not store `In Progress` in `user_checklist_status.status`; it is a derived
+  API/frontend display label.
+- The latest attempt always wins for home display, even if an older attempt was
+  completed.
+- Saved `NA` / `N/A` answers count toward progress when
+  `user_exam_answer.is_answered = true`.
+
+### Verified
+
+- Ran `npm run build:iebaseline`.
+- The first sandboxed build failed with the known Windows Vite `spawn EPERM`
+  while loading config.
+- The same build passed when rerun outside the sandbox.
+
 ## 2026-07-24 - NA Applicability Scoring Clarification
 
 Verified the IE Baseline checklist NA / non-applicable answer behavior after

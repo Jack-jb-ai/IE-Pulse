@@ -48,6 +48,8 @@ Current update:
 
 - The home page now fetches learner home data from `GET /api/iebaseline/home?user_id=1`.
 - `user_id=1` is a temporary demo-user default until authentication/current-user lookup exists.
+- Assignment progress now supports latest-attempt percentages from `0` to `100`, not only `0` or `100`.
+- Assignment status now supports the derived API labels `Not Started`, `In Progress`, and `Completed`.
 - Email and department remain placeholders because the current API response does not include them.
 - `MODULES` remains exported from `IEBaseline.tsx` only for dependent legacy pages such as module overview, admin, and edit views.
 
@@ -299,9 +301,9 @@ interface IEBaselineHomeResponse {
       user_id: number;
       name: string;
     } | null;
-    status: 'Not Started' | 'Completed';
+    status: 'Not Started' | 'In Progress' | 'Completed';
     raw_status: 'Incomplete' | 'Completed';
-    progress: 0 | 100;
+    progress: number;
     assigned_at: string;
     updated_at: string;
     question_count: number;
@@ -309,14 +311,27 @@ interface IEBaselineHomeResponse {
 }
 ```
 
-Current status/progress mapping:
+Current status/progress behavior:
 
 ```text
-Incomplete -> Not Started -> 0%
-Completed  -> Completed   -> 100%
+No attempt exists                                      -> Not Started -> 0%
+Latest attempt answered questions < total questions    -> In Progress -> 0..99%
+Latest attempt answered questions = total questions    -> Completed   -> 100%
 ```
 
-The current schema cannot produce true `In Progress` values yet. That will require attempt/progress storage later.
+The backend should derive progress from the most recent `user_exam_attempt` for
+the assigned `user_id` and `module_id`.
+
+```text
+progress = round(answered user_exam_answer rows / total module questions * 100)
+```
+
+Count only latest-attempt `user_exam_answer` rows with `is_answered = true`.
+Saved `NA` / `N/A` answers still count as answered when `is_answered = true`.
+
+Keep `user_checklist_status.status` unchanged as the raw database enum:
+`Incomplete` or `Completed`. `In Progress` is a derived API/frontend label and
+must not be stored in `user_checklist_status.status`.
 
 ## Coding-Agent Instructions For Future Edits
 

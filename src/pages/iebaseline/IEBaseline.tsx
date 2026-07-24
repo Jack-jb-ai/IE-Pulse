@@ -94,9 +94,10 @@ export default function IEBaseline() {
     }
   };
 
-  const getActionLabel = (progress: number) => {
+  const getActionLabel = (status: ModuleStatus, progress: number) => {
+    if (status === 'Completed' || progress >= 100) return 'Review Material';
+    if (status === 'In Progress') return 'Continue Module';
     if (progress === 0) return 'Start Module';
-    if (progress === 100) return 'Review Material';
     return 'Continue Module';
   };
 
@@ -213,7 +214,7 @@ export default function IEBaseline() {
 interface AssignmentAccordionProps {
   assignments: IEBaselineHomeAssignment[];
   formatDate: (value: string) => string;
-  getActionLabel: (progress: number) => string;
+  getActionLabel: (status: ModuleStatus, progress: number) => string;
   getStatusColorClass: (status: ModuleStatus) => string;
 }
 
@@ -310,7 +311,7 @@ function AssignmentAccordion({
                 <Button className="gap-2 shadow-sm" asChild>
                   <Link to={`/iebaseline/module/${assignment.module_id}`}>
                     <PlayCircle className="w-4 h-4" />
-                    {getActionLabel(assignment.progress)}
+                    {getActionLabel(assignment.status, assignment.progress)}
                   </Link>
                 </Button>
               </div>

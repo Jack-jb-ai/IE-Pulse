@@ -82,9 +82,9 @@ empty `assignments` array.
         "user_id": 5,
         "name": "Alex Lee"
       },
-      "status": "Not Started",
+      "status": "In Progress",
       "raw_status": "Incomplete",
-      "progress": 0,
+      "progress": 45,
       "assigned_at": "2026-07-22T01:00:00+00:00",
       "updated_at": "2026-07-22T01:00:00+00:00",
       "question_count": 12
@@ -93,15 +93,71 @@ empty `assignments` array.
 }
 ```
 
+### Progress and Status Tracking
+
+The home page progress and status must be derived from the most recent exam
+attempt for the assignment's `user_id` and `module_id`.
+
+`assignments[].progress` is a numeric percentage from `0` to `100`.
+
+Calculation:
+
+```text
+progress = round(answered_questions / total_questions * 100)
+```
+
+Rules:
+
+* `answered_questions` must count rows in `user_exam_answer` for the latest
+  attempt where `is_answered = true`.
+* `total_questions` must count checklist questions in `baseline_checklist` for
+  the module.
+* Clamp the returned `progress` value to the range `0..100`.
+* If `total_questions = 0`, return `progress = 0`.
+* Saved `NA` / `N/A` answers still count as answered when
+  `user_exam_answer.is_answered = true`.
+
+### Latest Attempt Selection
+
+When more than one `user_exam_attempt` exists for the same user and module, the
+home endpoint must use the most recent attempt using this ordering:
+
+1. Newest `completed_at`.
+2. Newest `submitted_at`.
+3. Newest `last_saved_at`.
+4. Newest `started_at`.
+5. Highest `attempt_no` as the deterministic final tie-breaker.
+
+The latest attempt always wins for home page display, even if an older attempt
+was completed.
+
 ### Status Mapping
 
-| Database `raw_status` | API `status` | `progress` |
-| --- | --- | --- |
-| `Incomplete` | `Not Started` | `0` |
-| `Completed` | `Completed` | `100` |
+`assignments[].status` is a derived API/frontend display label.
+`assignments[].raw_status` remains the stored `user_checklist_status.status`
+value.
 
-The current schema cannot derive partial progress yet, so v1 only returns `0`
-or `100`.
+Do not change the `checklist_status` database enum for this feature. It remains:
+
+```sql
+CREATE TYPE checklist_status AS ENUM (
+    'Completed',
+    'Incomplete'
+);
+```
+
+`In Progress` is derived from latest-attempt progress; it is not stored in
+`user_checklist_status.status`.
+
+| Latest attempt state | Database `raw_status` | API `status` | `progress` |
+| --- | --- | --- | --- |
+| No attempt exists | `Incomplete` | `Not Started` | `0` |
+| Latest attempt exists and has fewer answered questions than total questions | `Incomplete` | `In Progress` | `0..99` |
+| Latest attempt has answered questions equal to total questions | `Completed` | `Completed` | `100` |
+
+The backend may keep `raw_status` synchronized with completion by storing
+`Completed` only when the module is complete and `Incomplete` otherwise. It
+must never store `In Progress` in `user_checklist_status.status`.
 
 ### Response Fields
 
@@ -117,9 +173,9 @@ or `100`.
 | `assignments[].description` | Module description, or `null` |
 | `assignments[].owner_name` | Module owner, or `null` |
 | `assignments[].assigned_by` | Assignee user details, or `null` |
-| `assignments[].status` | Frontend status label |
-| `assignments[].raw_status` | Stored checklist status from the database |
-| `assignments[].progress` | Completion percentage |
+| `assignments[].status` | Derived frontend status label: `Not Started`, `In Progress`, or `Completed` |
+| `assignments[].raw_status` | Stored checklist status from the database: `Incomplete` or `Completed` |
+| `assignments[].progress` | Latest-attempt completion percentage from `0` to `100` |
 | `assignments[].assigned_at` | Assignment creation timestamp |
 | `assignments[].updated_at` | Assignment last update timestamp |
 | `assignments[].question_count` | Number of checklist questions for the module |
