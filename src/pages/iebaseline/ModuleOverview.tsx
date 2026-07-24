@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   Clock,
+  Eye,
   FileText,
   PlayCircle,
   RotateCcw,
@@ -253,6 +254,17 @@ export default function ModuleOverview() {
                     >
                       Review Module
                       <PlayCircle className="w-5 h-5" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full h-12 text-md font-semibold gap-2"
+                      size="lg"
+                      asChild
+                    >
+                      <Link to={`/iebaseline/module/${assignment.module_id}/results`}>
+                        View Result
+                        <Eye className="w-5 h-5" />
+                      </Link>
                     </Button>
                     <Button
                       variant="outline"

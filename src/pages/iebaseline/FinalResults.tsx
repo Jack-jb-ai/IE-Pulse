@@ -150,9 +150,9 @@ export default function FinalResults() {
             </div>
 
             <div className="grid gap-3">
-              <DetailRow label="user_name" value={homeData?.user.name ?? 'N/A'} />
-              <DetailRow label="user_position" value={homeData?.user.position ?? 'N/A'} />
-              <DetailRow label="date completed" value={formatDateTime(getCompletedDate(attempt))} />
+              <DetailRow label="Name" value={homeData?.user.name ?? 'N/A'} />
+              <DetailRow label="Position" value={homeData?.user.position ?? 'N/A'} />
+              <DetailRow label="Date Completed" value={formatDateTime(getCompletedDate(attempt))} />
             </div>
           </Card>
 
@@ -168,9 +168,9 @@ export default function FinalResults() {
             </div>
 
             <div className="grid gap-3">
-              <DetailRow label="score" value={formatScore(attempt.score)} />
-              <DetailRow label="pass/fail" value={attempt.resultStatus} />
-              <DetailRow label="correct answers" value={`${attempt.correctAnswers} / ${attempt.totalQuestions}`} />
+              <DetailRow label="Score" value={formatScore(attempt.score)} />
+              <DetailRow label="Result" value={attempt.resultStatus} />
+              <DetailRow label="Correct Answers" value={`${attempt.correctAnswers} / ${attempt.totalQuestions}`} />
             </div>
           </Card>
         </div>
