@@ -367,7 +367,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
                       <Badge variant="outline" className="border-white/20 text-white/70">#{question.questionNo}</Badge>
                     )}
                   </div>
-                  <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white leading-tight">
+                  <h2 className="whitespace-pre-line text-[clamp(1.5rem,2.4vw,2.5rem)] font-bold text-white leading-snug">
                     {question.question}
                   </h2>
                   <QuestionContext question={question} />
