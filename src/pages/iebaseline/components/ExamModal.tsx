@@ -128,7 +128,6 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
 
   const submitAttemptMutation = useMutation({
     mutationFn: async () => {
-      await persistCurrentAnswer();
       if (!attemptId) throw new Error('Attempt is not ready yet.');
       return ieBaselineApi.attempts.submit(attemptId);
     },
@@ -165,9 +164,9 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
   const question = questions[currentIndex];
   const options = useMemo(() => parseOptions(question?.options), [question?.options]);
   const selectedOption = question ? answers[question.questionId] ?? '' : '';
-  const answeredCount = progress?.answeredQuestions ?? questions.filter((item) => Boolean(answers[item.questionId])).length;
+  const answeredCount = questions.filter((item) => Boolean(answers[item.questionId])).length;
   const totalQuestions = progress?.totalQuestions ?? questions.length;
-  const progressPct = progress?.progressPercentage ?? (totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0);
+  const progressPct = totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0;
   const isReviewMode = reviewOnly || (attempt ? attempt.attemptStatus !== 'In Progress' : false);
   const isLoading = (reviewOnly ? isLoadingHistory : isStarting) || isLoadingQuestions;
   const isError = (reviewOnly ? isHistoryError : isStartError) || isQuestionsError;
@@ -211,7 +210,9 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
       ...current,
       [question.questionId]: value,
     }));
-    saveAnswerMutation.mutate({ questionId: question.questionId, selectedAnswer: value });
+    setSaveError(null);
+    setLastSaveRequest(null);
+    setSavedState(null);
   };
 
   const clearSelectedOption = () => {
@@ -222,7 +223,9 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
       delete next[question.questionId];
       return next;
     });
-    saveAnswerMutation.mutate({ questionId: question.questionId, selectedAnswer: null });
+    setSaveError(null);
+    setLastSaveRequest(null);
+    setSavedState(null);
   };
 
   const persistCurrentAnswer = async () => {
@@ -233,12 +236,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     await saveAnswerMutation.mutateAsync({ questionId: question.questionId, selectedAnswer: answer });
   };
 
-  const goPrevious = async () => {
-    try {
-      await persistCurrentAnswer();
-    } catch {
-      return;
-    }
+  const goPrevious = () => {
     setCurrentIndex((value) => Math.max(0, value - 1));
   };
 
@@ -258,17 +256,8 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     submitAttemptMutation.mutate();
   };
 
-  const handleClose = async () => {
-    try {
-      await persistCurrentAnswer();
-      onClose();
-    } catch {
-      toast({
-        title: 'Unable to save answer',
-        description: 'Fix the autosave error before leaving the checklist.',
-        variant: 'destructive',
-      });
-    }
+  const handleClose = () => {
+    onClose();
   };
 
   const renderSaveState = () => {
