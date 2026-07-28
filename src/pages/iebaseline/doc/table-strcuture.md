@@ -366,6 +366,8 @@ Table name: `baseline_checklist`
 | `reference` | text | text | `reference`, `Additional Information / Procedure & Documentation Reference` |
 | `memo` | text | text | `memo`, `notes`, `question notes`, `remarks` |
 | `available_points` | numeric(10,2) | numeric(10,2) | `Available Points`, `available points`, `available_points` |
+| `attachment_requirement` | USER-DEFINED | attachment_requirement | Question attachment rule: `none`, `optional`, or `required` |
+| `attachment_approval_required` | boolean | bool | Whether uploaded evidence requires trainer/admin approval |
 
 ## Table - Module Master
 
@@ -1481,11 +1483,13 @@ The scoring configuration uses the following structures:
 
 ## Table: `baseline_checklist`
 
-### New Column
+### New Columns
 
 | Column | Data Type | Constraints | Description |
 |----------|-----------|-------------|-------------|
 | `available_points` | `NUMERIC(10,2)` | Not null, default `1`, value >= 0 | Maximum score available for this checklist question before multipliers are applied. |
+| `attachment_requirement` | `attachment_requirement` enum | Not null, default `'none'` | Indicates whether the question has no attachment support, optional attachment support, or a mandatory attachment requirement. |
+| `attachment_approval_required` | `BOOLEAN` | Not null, default `false` | Indicates whether an uploaded attachment should enter a manual trainer/admin approval workflow. |
 
 ### Notes
 
@@ -1495,6 +1499,26 @@ The scoring configuration uses the following structures:
 * `is_applicable = true` means the selected option is included in scoring and contributes to `maximum_score`.
 * `is_applicable = false` means the selected option is excluded from scoring and its available points are not included in the final denominator.
 * `score_multiplier = 0` with `is_applicable = true` means zero credit, not exclusion.
+* `attachment_requirement` controls whether the frontend should show attachment functionality and whether evidence is mandatory before submission.
+* `attachment_approval_required` is intentionally separate from `attachment_requirement` because mandatory evidence and manual approval are different business rules.
+* `attachment_requirement = 'none'` should normally be paired with `attachment_approval_required = false`.
+
+Attachment requirement values:
+
+| Value | Meaning |
+|-------|---------|
+| `none` | No attachment functionality is needed for this question. |
+| `optional` | The user may upload supporting evidence, but submission does not require it. |
+| `required` | The user must upload evidence before the assessment can be submitted. |
+
+Attachment workflow examples:
+
+| attachment_requirement | attachment_approval_required | Meaning |
+|------------------------|------------------------------|---------|
+| `required` | `true` | User must upload evidence, and it requires trainer/admin approval. |
+| `required` | `false` | User must upload evidence, but no manual approval is needed. |
+| `optional` | `true` | User may upload supporting evidence, and if provided, it will be reviewed. |
+| `none` | `false` | No attachment functionality for this question. |
 
 Example:
 
@@ -1791,3 +1815,852 @@ py -3 src\pages\iebaseline\scripts\import_hla_baseline_checklist.py --help
 The script inserts into `baseline_checklist` by default and reads `DATABASE_CRED` from `src/pages/iebaseline/.env`.
 
 Before inserting each CSV file, the script deletes existing rows with the same `module_name`, then inserts the fresh CSV rows.
+
+---
+
+# Module Attachment Structure
+
+This section describes the database objects, storage decisions, API responsibilities, and frontend behavior required to support module-related file attachments.
+
+## Feature Scope
+
+The initial attachment feature supports:
+
+* Authenticated users uploading files related to a module.
+* One module having multiple attachments.
+* One attachment potentially being linked to multiple modules.
+* Files being stored temporarily on local server storage.
+* PostgreSQL storing file metadata and module relationships, not the binary file contents.
+* Users listing and downloading attachments through backend-controlled API routes.
+* Authorized users removing an attachment from a module.
+
+The first implementation should remain storage-provider agnostic where practical so local storage can later be replaced with object storage such as Amazon S3, Azure Blob Storage, or MinIO.
+
+---
+
+## Storage Decision
+
+For the current implementation, the physical file is stored on the backend server's local filesystem.
+
+Example logical storage location:
+
+```text
+uploads/module-attachments/
+```
+
+Example stored file:
+
+```text
+uploads/module-attachments/3a83398f-9f4a-453d-89a4-708e20f8f851.pdf
+```
+
+Important distinction:
+
+```text
+PostgreSQL
+    stores file metadata and relationships
+
+Local filesystem
+    stores the actual file bytes
+```
+
+The storage directory may exist on the same machine as PostgreSQL during development, but file handling belongs to the backend application. PostgreSQL should not directly manage or delete filesystem files.
+
+The backend should store a relative storage path or storage key rather than relying on a hardcoded machine-specific absolute path.
+
+Preferred:
+
+```text
+uploads/module-attachments/3a83398f-9f4a-453d-89a4-708e20f8f851.pdf
+```
+
+Avoid storing environment-specific paths such as:
+
+```text
+C:\Users\Developer\Project\uploads\module-attachments\file.pdf
+```
+
+The backend may combine the relative path with a configured upload root at runtime.
+
+---
+
+## PostgreSQL UUID Support
+
+The attachment design uses `gen_random_uuid()` to automatically generate a UUID for every attachment record.
+
+Enable the required PostgreSQL extension once per database:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+```
+
+The `IF NOT EXISTS` clause makes the statement safe to run when the extension is already installed.
+
+The UUID column uses:
+
+```sql
+attachment_unq_id UUID NOT NULL
+    DEFAULT gen_random_uuid()
+    UNIQUE
+```
+
+Application code should normally omit `attachment_unq_id` during insert and allow PostgreSQL to generate it.
+
+---
+
+# Table: `attachment_master`
+
+The `attachment_master` table stores metadata about the actual uploaded file.
+
+It does not store the file binary.
+
+```sql
+CREATE TABLE attachment_master (
+    id BIGSERIAL PRIMARY KEY,
+
+    attachment_unq_id UUID NOT NULL
+        DEFAULT gen_random_uuid()
+        UNIQUE,
+
+    original_file_name VARCHAR(255) NOT NULL,
+    stored_file_name VARCHAR(255) NOT NULL,
+    storage_path TEXT NOT NULL,
+
+    mime_type VARCHAR(150),
+    file_extension VARCHAR(20),
+    file_size_bytes BIGINT,
+
+    uploaded_by BIGINT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_attachment_uploaded_by
+        FOREIGN KEY (uploaded_by)
+        REFERENCES user_master(user_id)
+        ON DELETE RESTRICT,
+
+    CONSTRAINT chk_attachment_file_size
+        CHECK (
+            file_size_bytes IS NULL
+            OR file_size_bytes >= 0
+        )
+);
+```
+
+## Existing Table Migration
+
+If `attachment_master` was already created without the UUID default, run:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+ALTER TABLE attachment_master
+ALTER COLUMN attachment_unq_id
+SET DEFAULT gen_random_uuid();
+```
+
+## Columns
+
+| Column | Data Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | Primary key | Internal database identifier used for joins and foreign keys. |
+| `attachment_unq_id` | `UUID` | Not null, unique, database-generated | Non-sequential attachment identifier suitable for API exposure. |
+| `original_file_name` | `VARCHAR(255)` | Not null | Filename supplied by the user and displayed in the UI. |
+| `stored_file_name` | `VARCHAR(255)` | Not null | Safe unique filename used on local storage. |
+| `storage_path` | `TEXT` | Not null | Relative path or storage key used by the backend to locate the file. |
+| `mime_type` | `VARCHAR(150)` | Nullable | Detected or validated content type, such as `application/pdf`. |
+| `file_extension` | `VARCHAR(20)` | Nullable | Normalized extension including or excluding the dot according to one consistent backend rule. |
+| `file_size_bytes` | `BIGINT` | Nullable, nonnegative | File size in bytes. |
+| `uploaded_by` | `BIGINT` | Not null, foreign key | User who uploaded the file. |
+| `created_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time the attachment record was created. |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time the attachment metadata was last updated. |
+
+## Identifier Responsibilities
+
+Use:
+
+```text
+attachment_master.id
+```
+
+for internal joins and foreign keys.
+
+Use:
+
+```text
+attachment_master.attachment_unq_id
+```
+
+when exposing an attachment identifier through frontend-facing APIs where practical.
+
+Example:
+
+```text
+GET /api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download
+```
+
+The UUID is not an authorization mechanism. The backend must still validate user access.
+
+## Filename Responsibilities
+
+Example user upload:
+
+```text
+HLA Safety Manual.pdf
+```
+
+The backend should retain:
+
+```text
+original_file_name = HLA Safety Manual.pdf
+```
+
+The stored file should use a generated safe name, for example:
+
+```text
+stored_file_name = 3a83398f-9f4a-453d-89a4-708e20f8f851.pdf
+```
+
+Do not use `original_file_name` directly as the physical stored filename.
+
+---
+
+# Table: `module_attachment`
+
+The `module_attachment` table links attachments to modules.
+
+```sql
+CREATE TABLE module_attachment (
+    id BIGSERIAL PRIMARY KEY,
+
+    module_id BIGINT NOT NULL,
+    attachment_id BIGINT NOT NULL,
+
+    display_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT fk_module_attachment_module
+        FOREIGN KEY (module_id)
+        REFERENCES module_master(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_module_attachment_attachment
+        FOREIGN KEY (attachment_id)
+        REFERENCES attachment_master(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT uq_module_attachment
+        UNIQUE (module_id, attachment_id),
+
+    CONSTRAINT chk_module_attachment_display_order
+        CHECK (display_order >= 0)
+);
+```
+
+## Columns
+
+| Column | Data Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | Primary key | Internal identifier for the module-attachment relationship. |
+| `module_id` | `BIGINT` | Not null, foreign key | Module to which the attachment is linked. |
+| `attachment_id` | `BIGINT` | Not null, foreign key | References the uploaded file metadata. |
+| `display_order` | `INTEGER` | Not null, default `0`, nonnegative | Optional ordering value for attachment display. |
+| `created_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time the attachment was linked to the module. |
+
+## Why `uploaded_by` Is Not Repeated Here
+
+The uploader is already stored in:
+
+```text
+attachment_master.uploaded_by
+```
+
+Do not add a duplicate `user_id` to `module_attachment` unless it represents a different business event such as `attached_by`.
+
+Duplicating the uploader in both tables could produce contradictory records.
+
+## Why `storage_path` Is Not Stored Here
+
+The storage path describes the actual file, not its relationship to a module.
+
+Therefore:
+
+```text
+attachment_master.storage_path
+```
+
+owns the path.
+
+`module_attachment` only answers:
+
+```text
+Which attachment is linked to which module?
+```
+
+---
+
+# Attachment Relationships
+
+```text
+user_master
+    1
+    |
+    | uploaded_by
+    v
+attachment_master
+    1
+    |
+    | attachment_id
+    v
+module_attachment
+    ^
+    | module_id
+    |
+    1
+module_master
+```
+
+Cardinality:
+
+```text
+user_master 1 ---- many attachment_master
+
+attachment_master 1 ---- many module_attachment
+
+module_master 1 ---- many module_attachment
+```
+
+This relationship design allows:
+
+* One user to upload many attachments.
+* One module to contain many attachments.
+* One attachment to be reused by multiple modules if future business rules allow it.
+* Duplicate links for the same module and attachment to be rejected.
+
+---
+
+# Suggested Indexes
+
+Foreign keys do not automatically create lookup indexes in PostgreSQL.
+
+Add indexes for common attachment queries:
+
+```sql
+CREATE INDEX idx_attachment_master_uploaded_by
+    ON attachment_master(uploaded_by);
+
+CREATE INDEX idx_attachment_master_created_at
+    ON attachment_master(created_at);
+
+CREATE INDEX idx_module_attachment_module
+    ON module_attachment(module_id);
+
+CREATE INDEX idx_module_attachment_attachment
+    ON module_attachment(attachment_id);
+```
+
+The unique constraint on `(module_id, attachment_id)` already creates a unique index for that column combination.
+
+---
+
+# Expected Upload Flow
+
+When a user uploads an attachment for a module:
+
+1. Authenticate the user.
+2. Validate that the module exists.
+3. Validate that the user is allowed to add attachments to the module.
+4. Confirm that exactly one file was provided.
+5. Validate the maximum file size.
+6. Validate the allowed extension and content type.
+7. Generate a safe unique stored filename.
+8. Save the file to local storage.
+9. Begin a database transaction.
+10. Insert one row into `attachment_master`.
+11. Insert one row into `module_attachment`.
+12. Commit the transaction.
+13. Return attachment metadata to the frontend.
+
+If the database insert or relationship insert fails after the file is written, the backend must remove the newly written file to avoid an orphaned local file.
+
+Conceptual flow:
+
+```text
+Frontend FormData upload
+        |
+        v
+Backend validates request and authorization
+        |
+        v
+Backend writes file to local storage
+        |
+        v
+INSERT attachment_master
+        |
+        v
+INSERT module_attachment
+        |
+        v
+Return attachment response
+```
+
+---
+
+# Suggested Backend API Responsibilities
+
+The exact route prefix may be adapted to the existing backend structure.
+
+## Upload Module Attachment
+
+```text
+POST /api/iebaseline/modules/:moduleId/attachments
+```
+
+Request format:
+
+```text
+multipart/form-data
+```
+
+Recommended file field name:
+
+```text
+file
+```
+
+Optional form fields:
+
+```text
+displayOrder
+```
+
+Responsibilities:
+
+* Authenticate the user.
+* Validate `moduleId`.
+* Validate module existence.
+* Validate upload authorization.
+* Validate file presence, size, extension, and MIME type.
+* Generate a unique stored filename.
+* Save the file under the configured upload root.
+* Insert `attachment_master`.
+* Insert `module_attachment`.
+* Return the created attachment.
+* Remove the stored file if the database operation fails.
+
+Example response:
+
+```json
+{
+  "attachment": {
+    "id": 15,
+    "attachmentUnqId": "3a83398f-9f4a-453d-89a4-708e20f8f851",
+    "moduleId": 7,
+    "originalFileName": "HLA Safety Manual.pdf",
+    "mimeType": "application/pdf",
+    "fileExtension": ".pdf",
+    "fileSizeBytes": 2839102,
+    "displayOrder": 0,
+    "uploadedBy": 5,
+    "createdAt": "2026-07-27T11:30:00+08:00",
+    "downloadUrl": "/api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download"
+  }
+}
+```
+
+The response should not expose the physical `storage_path` unless an internal administrative use case requires it.
+
+---
+
+## List Module Attachments
+
+```text
+GET /api/iebaseline/modules/:moduleId/attachments
+```
+
+Responsibilities:
+
+* Authenticate the user.
+* Validate module access.
+* Return attachment metadata ordered by `display_order`, then creation time.
+* Return a backend-controlled download URL.
+
+Example query:
+
+```sql
+SELECT
+    attachment.id,
+    attachment.attachment_unq_id,
+    attachment.original_file_name,
+    attachment.mime_type,
+    attachment.file_extension,
+    attachment.file_size_bytes,
+    attachment.uploaded_by,
+    attachment.created_at,
+    relation.display_order
+FROM module_attachment relation
+JOIN attachment_master attachment
+    ON attachment.id = relation.attachment_id
+WHERE relation.module_id = $1
+ORDER BY
+    relation.display_order,
+    relation.created_at,
+    relation.id;
+```
+
+---
+
+## Download Attachment
+
+```text
+GET /api/iebaseline/attachments/:attachmentUnqId/download
+```
+
+Responsibilities:
+
+* Authenticate the user.
+* Find the attachment by `attachment_unq_id`.
+* Confirm the user can access at least one module linked to the attachment.
+* Resolve the stored file safely under the configured upload root.
+* Reject path traversal or paths outside the upload directory.
+* Confirm the physical file exists.
+* Send the file using `original_file_name` as the download filename.
+* Set an appropriate `Content-Type`.
+* Return `404` when the record or physical file is unavailable.
+* Never build a filesystem path directly from untrusted URL input.
+
+---
+
+## Remove Attachment From Module
+
+```text
+DELETE /api/iebaseline/modules/:moduleId/attachments/:attachmentUnqId
+```
+
+Initial version responsibilities:
+
+* Authenticate the user.
+* Validate module and attachment access.
+* Delete the matching `module_attachment` relationship.
+* Check whether the attachment remains linked to another module.
+* If it has no remaining relationships:
+  * delete the `attachment_master` row;
+  * delete the physical file.
+* Return a clear success response.
+
+Recommended response:
+
+```json
+{
+  "deleted": true,
+  "attachmentUnqId": "3a83398f-9f4a-453d-89a4-708e20f8f851"
+}
+```
+
+Because database rollback cannot restore a deleted filesystem file, the backend should use a deliberate cleanup strategy.
+
+For the initial local-storage implementation, one practical sequence is:
+
+1. Load and validate the attachment.
+2. Delete the module relationship in a database transaction.
+3. Delete the master row only when no relationships remain.
+4. Commit the database transaction.
+5. Delete the physical file when the master row was removed.
+6. Log and retry cleanup if filesystem deletion fails.
+
+A future implementation may use soft deletion and scheduled cleanup.
+
+---
+
+# Suggested Frontend Behavior
+
+The frontend should:
+
+1. Display an attachment section for the selected module.
+2. Load attachment metadata from the backend.
+3. Use an `<input type="file">` or equivalent upload component.
+4. Send the selected file using `FormData`.
+5. Use the field name `file`.
+6. Display upload progress or an uploading state.
+7. Disable repeated submission while an upload is active.
+8. Refresh or append the attachment list after a successful upload.
+9. Display the original filename, file type, file size, and upload time.
+10. Open downloads through the backend download route.
+11. Ask for confirmation before removing an attachment.
+12. Display backend validation errors clearly.
+
+The frontend should not:
+
+* Generate authoritative `uploaded_by` values.
+* Send `storage_path`.
+* Choose or trust the physical stored filename.
+* Construct local filesystem paths.
+* Treat UUID obscurity as authorization.
+* directly expose an `uploads/` directory.
+* decide whether a user is authorized to download or delete a file.
+
+Authentication should determine the uploader.
+
+---
+
+# Frontend Upload Example
+
+The frontend must use `FormData`.
+
+```javascript
+async function uploadModuleAttachment(moduleId, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `/api/iebaseline/modules/${moduleId}/attachments`,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      payload.message || "Failed to upload attachment.",
+    );
+  }
+
+  return payload.attachment;
+}
+```
+
+Do not manually set:
+
+```text
+Content-Type: multipart/form-data
+```
+
+when using browser `FormData`.
+
+The browser must generate the multipart boundary automatically.
+
+---
+
+# Backend Insert Example
+
+The backend should omit `attachment_unq_id` and allow PostgreSQL to generate it.
+
+```sql
+INSERT INTO attachment_master (
+    original_file_name,
+    stored_file_name,
+    storage_path,
+    mime_type,
+    file_extension,
+    file_size_bytes,
+    uploaded_by
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7
+)
+RETURNING
+    id,
+    attachment_unq_id,
+    original_file_name,
+    stored_file_name,
+    storage_path,
+    mime_type,
+    file_extension,
+    file_size_bytes,
+    uploaded_by,
+    created_at,
+    updated_at;
+```
+
+Then create the module relationship:
+
+```sql
+INSERT INTO module_attachment (
+    module_id,
+    attachment_id,
+    display_order
+)
+VALUES (
+    $1,
+    $2,
+    $3
+)
+RETURNING
+    id,
+    module_id,
+    attachment_id,
+    display_order,
+    created_at;
+```
+
+Both inserts should be handled as one logical operation.
+
+---
+
+# Validation and Security Rules
+
+At minimum, the backend must enforce:
+
+* Authenticated upload, list, download, and delete operations.
+* Authorization based on module access and the user's role.
+* A configurable maximum upload size.
+* An explicit allowlist of permitted file types.
+* Filename sanitization.
+* Generated stored filenames.
+* Parameterized SQL.
+* Safe path resolution.
+* No public execution of uploaded files.
+* No trust in client-provided MIME type alone.
+* No trust in the filename extension alone.
+* No direct use of `original_file_name` as a filesystem path.
+* No direct public exposure of the upload directory.
+* Logging of upload and deletion failures.
+
+Recommended initial allowed types should be agreed with the business requirement.
+
+Possible starting set:
+
+```text
+.pdf
+.png
+.jpg
+.jpeg
+.docx
+.xlsx
+```
+
+For stronger validation, inspect file signatures or magic bytes.
+
+For production or wider enterprise use, add malware scanning before making files available for download.
+
+---
+
+# Error Handling
+
+Suggested HTTP responses:
+
+| Situation | Status |
+|---|---:|
+| File missing from request | `400 Bad Request` |
+| Invalid module ID | `400 Bad Request` |
+| Unsupported file type | `415 Unsupported Media Type` |
+| File exceeds limit | `413 Payload Too Large` |
+| User not authenticated | `401 Unauthorized` |
+| User lacks module access | `403 Forbidden` |
+| Module not found | `404 Not Found` |
+| Attachment record not found | `404 Not Found` |
+| Physical file missing | `404 Not Found` or internal integrity error |
+| Duplicate module-attachment relationship | `409 Conflict` |
+| Unexpected storage or database failure | `500 Internal Server Error` |
+
+The backend should avoid returning server filesystem paths in error messages.
+
+---
+
+# Configuration
+
+Do not hardcode upload paths or upload limits in route code.
+
+Suggested environment variables:
+
+```text
+ATTACHMENT_UPLOAD_ROOT=uploads/module-attachments
+ATTACHMENT_MAX_FILE_SIZE_BYTES=10485760
+```
+
+Example:
+
+```text
+10485760 bytes = 10 MiB
+```
+
+The backend should ensure the upload directory exists during startup.
+
+The local upload directory should be excluded from source control.
+
+Example `.gitignore` entry:
+
+```text
+uploads/
+```
+
+Production deployment must mount persistent storage if the backend container or server may be rebuilt.
+
+---
+
+# Important Implementation Rules for Coding Agents
+
+* Reuse the project's existing authentication and database connection patterns.
+* Do not invent a second user identity mechanism.
+* Derive `uploaded_by` from the authenticated user.
+* Use `module_master.id` as the authoritative module key.
+* Use `attachment_master.id` for database joins.
+* Prefer `attachment_unq_id` for frontend-facing attachment routes.
+* Do not expose `storage_path` in normal frontend responses.
+* Keep file-storage logic behind a service or helper instead of scattering it across route handlers.
+* Keep database queries parameterized.
+* Use a database transaction for the two attachment inserts.
+* Remove the newly written file when database creation fails.
+* Validate authorization separately for upload, list, download, and delete.
+* Do not assume that possession of an attachment UUID grants access.
+* Return consistent camelCase JSON if that matches the existing frontend contract.
+* Preserve original filenames for display and downloads.
+* Generate safe physical filenames.
+* Normalize file extensions consistently.
+* Add indexes for foreign-key lookup columns.
+* Add automated tests for upload validation, authorization, listing, downloading, deletion, and orphan cleanup.
+* Do not implement cloud object storage in the first version unless the project already provides it.
+* Keep the storage interface replaceable so local storage can be migrated later.
+
+---
+
+# Minimum Acceptance Criteria
+
+The attachment feature is complete for the initial version when:
+
+1. An authorized user can upload an allowed file to an existing module.
+2. The file is physically saved under the configured local upload directory.
+3. One `attachment_master` row is created.
+4. One `module_attachment` row is created.
+5. PostgreSQL automatically generates `attachment_unq_id`.
+6. The module attachment list displays the uploaded file.
+7. An authorized user can download the file using the backend route.
+8. Unauthorized users cannot access the file.
+9. An authorized user can remove the attachment.
+10. Unlinked attachment metadata and physical files are cleaned up.
+11. Failed database operations do not leave newly uploaded orphan files.
+12. The frontend never receives or constructs a server filesystem path.
+
+---
+
+# Future Improvements
+
+The current structure can later support:
+
+* Cloud or on-premises object storage.
+* Presigned or time-limited download URLs.
+* Attachment descriptions and display labels.
+* Attachment categories.
+* Version history.
+* Soft deletion.
+* Malware scanning.
+* Checksums for integrity and duplicate detection.
+* Per-attachment access control.
+* Audit logs.
+* Preview generation.
+* Image thumbnails.
+* PDF metadata extraction.
+* Bulk upload.
+* Storage quotas.
+* Background cleanup of orphan files.
+* Attachment links to checklist questions, attempts, answers, or user submissions.

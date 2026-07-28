@@ -1124,6 +1124,210 @@ Status: `200 OK`
 }
 ```
 
+## Module Attachments
+
+Module attachments are stored on the backend machine under the `.env`
+`ATTACHMENT_FOLDER` path. PostgreSQL stores metadata and relationships only.
+The physical stored filename is derived from PostgreSQL's generated
+`attachment_unq_id`, using `{attachmentUnqId}{fileExtension}`.
+
+Authentication is not implemented yet. Until it exists, upload requests send
+`uploadedBy` in `FormData`, and list/download/delete requests send `user_id` as
+a query parameter. The backend allows access only when `user_checklist_status`
+links that user to the module.
+
+Allowed filename extensions:
+
+```text
+.jpg, .jpeg, .png, .txt, .pdf, .docx, .xlsx, .pptx, .csv
+```
+
+The backend checks the uploaded filename extension before saving the file. If
+the extension is not accepted, the API returns:
+
+```json
+{
+  "detail": "file type not accepted"
+}
+```
+
+### POST /api/iebaseline/modules/{module_id}/attachments
+
+Uploads one attachment for a module.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; temporary uploader field required |
+| Path parameter | `module_id`, required integer |
+| Request body | `multipart/form-data` |
+| Required form field | `file`, uploaded file |
+| Required form field | `uploadedBy`, integer user ID |
+| Optional form field | `displayOrder`, integer, default `0` |
+
+Do not manually set `Content-Type` when using browser `FormData`; the browser
+must set the multipart boundary.
+
+### Example Request
+
+```javascript
+const formData = new FormData();
+formData.append("file", file);
+formData.append("uploadedBy", String(userId));
+formData.append("displayOrder", "0");
+
+await fetch(`/api/iebaseline/modules/${moduleId}/attachments`, {
+  method: "POST",
+  body: formData,
+});
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "attachment": {
+    "id": 15,
+    "attachmentUnqId": "3a83398f-9f4a-453d-89a4-708e20f8f851",
+    "moduleId": 3,
+    "originalFileName": "manual.pdf",
+    "mimeType": "application/pdf",
+    "fileExtension": ".pdf",
+    "fileSizeBytes": 2839102,
+    "displayOrder": 0,
+    "uploadedBy": 1,
+    "createdAt": "2026-07-27T11:30:00+08:00",
+    "downloadUrl": "/api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download"
+  }
+}
+```
+
+### GET /api/iebaseline/modules/{module_id}/attachments
+
+Lists attachments for one module.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; temporary user query required |
+| Path parameter | `module_id`, required integer |
+| Query parameter | `user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/modules/3/attachments?user_id=1
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "attachments": [
+    {
+      "id": 15,
+      "attachmentUnqId": "3a83398f-9f4a-453d-89a4-708e20f8f851",
+      "moduleId": 3,
+      "originalFileName": "manual.pdf",
+      "mimeType": "application/pdf",
+      "fileExtension": ".pdf",
+      "fileSizeBytes": 2839102,
+      "displayOrder": 0,
+      "uploadedBy": 1,
+      "createdAt": "2026-07-27T11:30:00+08:00",
+      "downloadUrl": "/api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download"
+    }
+  ]
+}
+```
+
+### GET /api/iebaseline/attachments/{attachment_unq_id}/download
+
+Downloads one attachment through the backend.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; temporary user query required |
+| Path parameter | `attachment_unq_id`, required UUID |
+| Query parameter | `user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download?user_id=1
+```
+
+The response body is the file content. The backend sets the download filename
+from `attachment_master.original_file_name`.
+
+### DELETE /api/iebaseline/modules/{module_id}/attachments/{attachment_unq_id}
+
+Removes an attachment link from a module. If the attachment is no longer linked
+to any module, the backend also removes the metadata row and local file.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; temporary user query required |
+| Path parameter | `module_id`, required integer |
+| Path parameter | `attachment_unq_id`, required UUID |
+| Query parameter | `user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+DELETE /api/iebaseline/modules/3/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851?user_id=1
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "deleted": true,
+  "attachmentUnqId": "3a83398f-9f4a-453d-89a4-708e20f8f851"
+}
+```
+
+### Error Responses
+
+```json
+{
+  "detail": "Module not found"
+}
+```
+
+```json
+{
+  "detail": "User not found"
+}
+```
+
+```json
+{
+  "detail": "User lacks module access"
+}
+```
+
+```json
+{
+  "detail": "Attachment not found"
+}
+```
+
 ## Current / Legacy: GET /api/iebaseline/modules/{moduleName}/questions
 
 Fetches baseline checklist questions for a specific module from the
