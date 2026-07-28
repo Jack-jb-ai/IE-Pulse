@@ -234,6 +234,7 @@ export const APPS: AppConfig[] = [
       { label: 'Overview', to: '/iebaseline', icon: Home },
       { label: 'Edit', to: '/iebaseline/edit', icon: Pencil },
       { label: 'Assign', to: '/iebaseline/assign', icon: UserCheck },
+      { label: 'Developer Docs', to: '/iebaseline/developer-docs', icon: FileText },
     ],
   },
   {

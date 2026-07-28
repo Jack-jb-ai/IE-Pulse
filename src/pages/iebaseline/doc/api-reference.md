@@ -752,10 +752,13 @@ Status: `200 OK`
       ],
       "reference": null,
       "memo": null,
+      "attachmentRequirement": "required",
+      "attachmentApprovalRequired": false,
       "answer": {
         "answerId": null,
         "selectedAnswer": null,
         "isAnswered": false,
+        "isAttached": false,
         "isCorrect": null,
         "scoreAwarded": null,
         "maximumScore": null,
@@ -777,6 +780,10 @@ The legacy `options` string remains in the payload for compatibility.
   "detail": "Attempt not found"
 }
 ```
+
+Questions with `attachmentRequirement: "required"` should display the frontend
+attachment section. `answer.isAttached` is maintained by the backend attachment
+APIs and indicates whether that saved answer currently has evidence linked.
 
 ## PUT /api/iebaseline/attempts/{attempt_id}/questions/{question_id}/answer
 
@@ -834,6 +841,7 @@ Status: `200 OK`
   "questionId": 25,
   "selectedAnswer": "Yes",
   "isAnswered": true,
+  "isAttached": false,
   "answeredQuestions": 13,
   "totalQuestions": 20,
   "progressPercentage": 65,
@@ -880,6 +888,7 @@ The response shape is the same as save answer.
   "questionId": 25,
   "selectedAnswer": null,
   "isAnswered": false,
+  "isAttached": false,
   "answeredQuestions": 12,
   "totalQuestions": 20,
   "progressPercentage": 60,
@@ -1053,6 +1062,24 @@ Future backend requirement:
 }
 ```
 
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": {
+    "success": false,
+    "code": "REQUIRED_ATTACHMENTS_MISSING",
+    "message": "Required attachments are missing.",
+    "missing_questions": [
+      {
+        "question_id": 10,
+        "question_no": "4"
+      }
+    ]
+  }
+}
+```
+
 ## GET /api/iebaseline/modules/{module_id}/attempts
 
 Lists attempts for one user/module.
@@ -1164,6 +1191,7 @@ Uploads one attachment for a module.
 | Request body | `multipart/form-data` |
 | Required form field | `file`, uploaded file |
 | Required form field | `uploadedBy`, integer user ID |
+| Required form field | `answerId`, integer `user_exam_answer.answer_id` |
 | Optional form field | `displayOrder`, integer, default `0` |
 
 Do not manually set `Content-Type` when using browser `FormData`; the browser
@@ -1175,6 +1203,7 @@ must set the multipart boundary.
 const formData = new FormData();
 formData.append("file", file);
 formData.append("uploadedBy", String(userId));
+formData.append("answerId", String(answerId));
 formData.append("displayOrder", "0");
 
 await fetch(`/api/iebaseline/modules/${moduleId}/attachments`, {
@@ -1193,6 +1222,7 @@ Status: `200 OK`
     "id": 15,
     "attachmentUnqId": "3a83398f-9f4a-453d-89a4-708e20f8f851",
     "moduleId": 3,
+    "answerId": 501,
     "originalFileName": "manual.pdf",
     "mimeType": "application/pdf",
     "fileExtension": ".pdf",
@@ -1216,12 +1246,13 @@ Lists attachments for one module.
 | Authentication | None required; temporary user query required |
 | Path parameter | `module_id`, required integer |
 | Query parameter | `user_id`, required integer |
+| Query parameter | `answer_id`, optional integer filter |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules/3/attachments?user_id=1
+GET /api/iebaseline/modules/3/attachments?user_id=1&answer_id=501
 ```
 
 ### Success Response
@@ -1235,6 +1266,7 @@ Status: `200 OK`
       "id": 15,
       "attachmentUnqId": "3a83398f-9f4a-453d-89a4-708e20f8f851",
       "moduleId": 3,
+      "answerId": 501,
       "originalFileName": "manual.pdf",
       "mimeType": "application/pdf",
       "fileExtension": ".pdf",
