@@ -700,6 +700,7 @@ CREATE TABLE user_exam_answer (
     selected_answer TEXT,
 
     is_answered BOOLEAN NOT NULL DEFAULT FALSE,
+    is_attached BOOLEAN NOT NULL DEFAULT FALSE,
     is_correct BOOLEAN,
 
     score_awarded NUMERIC(8,2),
@@ -770,6 +771,7 @@ CREATE TABLE user_exam_answer (
 | `question_id`     | `INTEGER`      | Not null, foreign key | References `baseline_checklist.id`.                     |
 | `selected_answer` | `TEXT`         | Nullable              | Answer selected or entered by the user.                 |
 | `is_answered`     | `BOOLEAN`      | Not null              | Indicates whether the question currently has an answer. |
+| `is_attached`     | `BOOLEAN`      | Not null, default false | Indicates whether the answer has linked attachment evidence. |
 | `is_correct`      | `BOOLEAN`      | Nullable              | Indicates whether the saved answer is correct.          |
 | `score_awarded`   | `NUMERIC(8,2)` | Nullable, nonnegative | Score awarded for this answer.                          |
 | `maximum_score`   | `NUMERIC(8,2)` | Nullable, nonnegative | Maximum possible score for this question.               |
@@ -786,6 +788,8 @@ CREATE TABLE user_exam_answer (
 * Deleting an attempt automatically deletes its saved answers.
 * The backend should derive `user_id` and `module_id` from the attempt where possible.
 * The frontend should not be trusted to provide authoritative ownership values.
+* `is_attached` should be true when the answer has supporting evidence linked through `module_attachment.user_exam_answer_id`.
+* When the last evidence link for an answer is removed, the backend should set `is_attached` back to false.
 * `is_correct` may remain null until the attempt is submitted or evaluated.
 * `selected_answer` may be null when the user clears an answer.
 * When an answer is cleared, `is_answered` should be set to false.
@@ -2028,7 +2032,8 @@ Do not use `original_file_name` directly as the physical stored filename.
 
 # Table: `module_attachment`
 
-The `module_attachment` table links attachments to modules.
+The `module_attachment` table links attachments to modules and to the specific
+saved answer the attachment supports.
 
 ```sql
 CREATE TABLE module_attachment (
@@ -2036,6 +2041,7 @@ CREATE TABLE module_attachment (
 
     module_id BIGINT NOT NULL,
     attachment_id BIGINT NOT NULL,
+    user_exam_answer_id BIGINT NOT NULL,
 
     display_order INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -2048,6 +2054,11 @@ CREATE TABLE module_attachment (
     CONSTRAINT fk_module_attachment_attachment
         FOREIGN KEY (attachment_id)
         REFERENCES attachment_master(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_module_attachment_answer
+        FOREIGN KEY (user_exam_answer_id)
+        REFERENCES user_exam_answer(answer_id)
         ON DELETE CASCADE,
 
     CONSTRAINT uq_module_attachment
@@ -2065,8 +2076,26 @@ CREATE TABLE module_attachment (
 | `id` | `BIGSERIAL` | Primary key | Internal identifier for the module-attachment relationship. |
 | `module_id` | `BIGINT` | Not null, foreign key | Module to which the attachment is linked. |
 | `attachment_id` | `BIGINT` | Not null, foreign key | References the uploaded file metadata. |
+| `user_exam_answer_id` | `BIGINT` | Not null, foreign key | References the saved answer that this attachment supports. |
 | `display_order` | `INTEGER` | Not null, default `0`, nonnegative | Optional ordering value for attachment display. |
 | `created_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time the attachment was linked to the module. |
+
+## Answer Attachment Migration SQL
+
+```sql
+ALTER TABLE user_exam_answer
+ADD COLUMN is_attached BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE module_attachment
+ADD COLUMN user_exam_answer_id BIGINT NOT NULL,
+ADD CONSTRAINT fk_module_attachment_answer
+    FOREIGN KEY (user_exam_answer_id)
+    REFERENCES user_exam_answer(answer_id)
+    ON DELETE CASCADE;
+```
+
+If `module_attachment` already contains rows, backfill `user_exam_answer_id`
+before enforcing `NOT NULL`.
 
 ## Why `uploaded_by` Is Not Repeated Here
 
@@ -2095,7 +2124,7 @@ owns the path.
 `module_attachment` only answers:
 
 ```text
-Which attachment is linked to which module?
+Which attachment is linked to which module and answer?
 ```
 
 ---
@@ -2115,6 +2144,16 @@ attachment_master
     v
 module_attachment
     ^
+    | user_exam_answer_id
+    |
+    1
+user_exam_answer
+    ^
+    | answer_id
+    |
+    many
+user_exam_attempt
+    ^
     | module_id
     |
     1
@@ -2129,14 +2168,18 @@ user_master 1 ---- many attachment_master
 attachment_master 1 ---- many module_attachment
 
 module_master 1 ---- many module_attachment
+
+user_exam_answer 1 ---- many module_attachment
 ```
 
 This relationship design allows:
 
 * One user to upload many attachments.
 * One module to contain many attachments.
+* One saved answer to contain many evidence attachments.
 * One attachment to be reused by multiple modules if future business rules allow it.
 * Duplicate links for the same module and attachment to be rejected.
+* Deleting an answer to remove its attachment links through `ON DELETE CASCADE`.
 
 ---
 
@@ -2158,6 +2201,9 @@ CREATE INDEX idx_module_attachment_module
 
 CREATE INDEX idx_module_attachment_attachment
     ON module_attachment(attachment_id);
+
+CREATE INDEX idx_module_attachment_answer
+    ON module_attachment(user_exam_answer_id);
 ```
 
 The unique constraint on `(module_id, attachment_id)` already creates a unique index for that column combination.
@@ -2178,9 +2224,10 @@ When a user uploads an attachment for a module:
 8. Save the file to local storage.
 9. Begin a database transaction.
 10. Insert one row into `attachment_master`.
-11. Insert one row into `module_attachment`.
-12. Commit the transaction.
-13. Return attachment metadata to the frontend.
+11. Insert one row into `module_attachment`, including `user_exam_answer_id`.
+12. Set `user_exam_answer.is_attached` to `TRUE` for the answer.
+13. Commit the transaction.
+14. Return attachment metadata to the frontend.
 
 If the database insert or relationship insert fails after the file is written, the backend must remove the newly written file to avoid an orphaned local file.
 
@@ -2200,6 +2247,9 @@ INSERT attachment_master
         |
         v
 INSERT module_attachment
+        |
+        v
+UPDATE user_exam_answer.is_attached = TRUE
         |
         v
 Return attachment response
@@ -2261,6 +2311,7 @@ Example response:
     "mimeType": "application/pdf",
     "fileExtension": ".pdf",
     "fileSizeBytes": 2839102,
+    "userExamAnswerId": 101,
     "displayOrder": 0,
     "uploadedBy": 5,
     "createdAt": "2026-07-27T11:30:00+08:00",
@@ -2298,6 +2349,7 @@ SELECT
     attachment.file_size_bytes,
     attachment.uploaded_by,
     attachment.created_at,
+    relation.user_exam_answer_id,
     relation.display_order
 FROM module_attachment relation
 JOIN attachment_master attachment
@@ -2488,17 +2540,20 @@ Then create the module relationship:
 INSERT INTO module_attachment (
     module_id,
     attachment_id,
+    user_exam_answer_id,
     display_order
 )
 VALUES (
     $1,
     $2,
-    $3
+    $3,
+    $4
 )
 RETURNING
     id,
     module_id,
     attachment_id,
+    user_exam_answer_id,
     display_order,
     created_at;
 ```
@@ -2605,6 +2660,8 @@ Production deployment must mount persistent storage if the backend container or 
 * Derive `uploaded_by` from the authenticated user.
 * Use `module_master.id` as the authoritative module key.
 * Use `attachment_master.id` for database joins.
+* Link answer evidence through `module_attachment.user_exam_answer_id`.
+* Keep `user_exam_answer.is_attached` synchronized with the answer's evidence links.
 * Prefer `attachment_unq_id` for frontend-facing attachment routes.
 * Do not expose `storage_path` in normal frontend responses.
 * Keep file-storage logic behind a service or helper instead of scattering it across route handlers.
@@ -2631,12 +2688,13 @@ The attachment feature is complete for the initial version when:
 1. An authorized user can upload an allowed file to an existing module.
 2. The file is physically saved under the configured local upload directory.
 3. One `attachment_master` row is created.
-4. One `module_attachment` row is created.
+4. One `module_attachment` row is created with `user_exam_answer_id`.
 5. PostgreSQL automatically generates `attachment_unq_id`.
-6. The module attachment list displays the uploaded file.
-7. An authorized user can download the file using the backend route.
-8. Unauthorized users cannot access the file.
-9. An authorized user can remove the attachment.
+6. The related `user_exam_answer.is_attached` value is set to true.
+7. The module attachment list displays the uploaded file.
+8. An authorized user can download the file using the backend route.
+9. Unauthorized users cannot access the file.
+10. An authorized user can remove the attachment.
 10. Unlinked attachment metadata and physical files are cleaned up.
 11. Failed database operations do not leave newly uploaded orphan files.
 12. The frontend never receives or constructs a server filesystem path.
