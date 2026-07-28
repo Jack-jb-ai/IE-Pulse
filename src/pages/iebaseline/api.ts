@@ -125,6 +125,7 @@ export interface IEBaselineAttemptAnswer {
   answerId: number | null;
   selectedAnswer: string | null;
   isAnswered: boolean;
+  isAttached: boolean;
   isCorrect: boolean | null;
   scoreAwarded: number | null;
   maximumScore: number | null;
@@ -144,6 +145,8 @@ export interface IEBaselineAttemptQuestion {
   questionNo: number | string | null;
   question: string;
   options: string | null;
+  attachmentRequirement: 'none' | 'optional' | 'required' | string | null;
+  attachmentApprovalRequired: boolean | null;
   reference: string | null;
   memo: string | null;
   answer: IEBaselineAttemptAnswer;
@@ -162,8 +165,10 @@ export interface IEBaselineSaveAnswerRequest {
 export interface IEBaselineSaveAnswerResponse {
   attemptId: number;
   questionId: number;
+  answerId: number;
   selectedAnswer: string | null;
   isAnswered: boolean;
+  isAttached: boolean;
   answeredQuestions: number;
   totalQuestions: number;
   progressPercentage: number;
@@ -175,22 +180,70 @@ export interface IEBaselineSubmitAttemptResponse {
   progress: IEBaselineAttemptProgress;
 }
 
+export interface IEBaselineValidationQuestion {
+  question_id: number;
+  question_no: number | string | null;
+}
+
+export interface IEBaselineValidationDetail {
+  success: false;
+  code: 'UNANSWERED_QUESTIONS' | 'REQUIRED_ATTACHMENTS_MISSING' | string;
+  message: string;
+  unanswered_questions?: IEBaselineValidationQuestion[];
+  missing_questions?: IEBaselineValidationQuestion[];
+}
+
+export interface IEBaselineAttachment {
+  id: number;
+  attachmentUnqId: string;
+  moduleId: number;
+  answerId: number;
+  originalFileName: string;
+  mimeType: string | null;
+  fileExtension: string | null;
+  fileSizeBytes: number | null;
+  displayOrder: number;
+  uploadedBy: number;
+  createdAt: string;
+  downloadUrl: string;
+}
+
+export interface IEBaselineAttachmentsResponse {
+  attachments: IEBaselineAttachment[];
+}
+
+export interface IEBaselineUploadAttachmentResponse {
+  attachment: IEBaselineAttachment;
+}
+
+export interface IEBaselineDeleteAttachmentResponse {
+  deleted: boolean;
+  attachmentUnqId: string;
+}
+
 export type IEBaselineAttemptHistoryItem = IEBaselineAttempt;
 type IEBaselineAttemptHistoryResponse = IEBaselineAttemptHistoryItem[] | { attempts: IEBaselineAttemptHistoryItem[] };
+
+export class IEBaselineApiError extends Error {
+  status: number;
+  detail: unknown;
+  validationDetail: IEBaselineValidationDetail | null;
+
+  constructor(path: string, status: number, detail: unknown) {
+    const validationDetail = getValidationDetail(detail);
+    super(`IE Baseline API ${path} -> ${status}${formatErrorDetail(detail, validationDetail)}`);
+    this.name = 'IEBaselineApiError';
+    this.status = status;
+    this.detail = detail;
+    this.validationDetail = validationDetail;
+  }
+}
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
 
   if (!res.ok) {
-    let detail = '';
-    try {
-      const body = await res.json();
-      detail = typeof body?.detail === 'string' ? `: ${body.detail}` : '';
-    } catch {
-      detail = '';
-    }
-
-    throw new Error(`IE Baseline API ${path} -> ${res.status}${detail}`);
+    throw new IEBaselineApiError(path, res.status, await readErrorDetail(res));
   }
 
   return res.json() as Promise<T>;
@@ -206,18 +259,50 @@ async function sendJson<TResponse, TBody = undefined>(method: 'PUT' | 'POST' | '
   });
 
   if (!res.ok) {
-    let detail = '';
-    try {
-      const responseBody = await res.json();
-      detail = typeof responseBody?.detail === 'string' ? `: ${responseBody.detail}` : '';
-    } catch {
-      detail = '';
-    }
-
-    throw new Error(`IE Baseline API ${path} -> ${res.status}${detail}`);
+    throw new IEBaselineApiError(path, res.status, await readErrorDetail(res));
   }
 
   return res.json() as Promise<TResponse>;
+}
+
+async function sendForm<TResponse>(method: 'POST', path: string, formData: FormData): Promise<TResponse> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new IEBaselineApiError(path, res.status, await readErrorDetail(res));
+  }
+
+  return res.json() as Promise<TResponse>;
+}
+
+async function readErrorDetail(res: Response): Promise<unknown> {
+  try {
+    const body = await res.json();
+    return body?.detail ?? body;
+  } catch {
+    return null;
+  }
+}
+
+function getValidationDetail(detail: unknown): IEBaselineValidationDetail | null {
+  if (!detail || typeof detail !== 'object') return null;
+  const value = detail as Partial<IEBaselineValidationDetail>;
+  if (value.success === false && typeof value.code === 'string' && typeof value.message === 'string') {
+    return value as IEBaselineValidationDetail;
+  }
+  return null;
+}
+
+function formatErrorDetail(detail: unknown, validationDetail: IEBaselineValidationDetail | null) {
+  if (validationDetail) return `: ${validationDetail.message}`;
+  if (typeof detail === 'string') return `: ${detail}`;
+  if (detail && typeof detail === 'object' && typeof (detail as { message?: unknown }).message === 'string') {
+    return `: ${(detail as { message: string }).message}`;
+  }
+  return '';
 }
 
 export const ieBaselineApi = {
@@ -257,6 +342,32 @@ export const ieBaselineApi = {
 
         return Array.isArray(data) ? data : data.attempts;
       },
+    },
+    attachments: {
+      list: (moduleId: number, answerId: number, userId = IEBASELINE_DEMO_USER_ID) =>
+        get<IEBaselineAttachmentsResponse>(
+          `/modules/${encodeURIComponent(String(moduleId))}/attachments?user_id=${encodeURIComponent(String(userId))}&answer_id=${encodeURIComponent(String(answerId))}`,
+        ),
+      upload: (moduleId: number, answerId: number, file: File, userId = IEBASELINE_DEMO_USER_ID) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('uploadedBy', String(userId));
+        formData.append('answerId', String(answerId));
+        formData.append('displayOrder', '0');
+
+        return sendForm<IEBaselineUploadAttachmentResponse>(
+          'POST',
+          `/modules/${encodeURIComponent(String(moduleId))}/attachments`,
+          formData,
+        );
+      },
+      remove: (moduleId: number, attachmentUnqId: string, userId = IEBASELINE_DEMO_USER_ID) =>
+        sendJson<IEBaselineDeleteAttachmentResponse>(
+          'DELETE',
+          `/modules/${encodeURIComponent(String(moduleId))}/attachments/${encodeURIComponent(attachmentUnqId)}?user_id=${encodeURIComponent(String(userId))}`,
+        ),
+      downloadUrl: (attachmentUnqId: string, userId = IEBASELINE_DEMO_USER_ID) =>
+        `${BASE}/attachments/${encodeURIComponent(attachmentUnqId)}/download?user_id=${encodeURIComponent(String(userId))}`,
     },
   },
   attempts: {

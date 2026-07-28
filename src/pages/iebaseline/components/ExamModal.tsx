@@ -2,14 +2,26 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Eraser, FileText, Loader2, Save, Trophy, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Download, Eraser, FileText, Loader2, Paperclip, Save, Trash2, Trophy, Upload, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { ieBaselineApi, type IEBaselineAttempt, type IEBaselineAttemptAnswer, type IEBaselineAttemptProgress } from '../api';
+import {
+  IEBASELINE_DEMO_USER_ID,
+  IEBaselineApiError,
+  ieBaselineApi,
+  type IEBaselineAttachment,
+  type IEBaselineAttempt,
+  type IEBaselineAttemptAnswer,
+  type IEBaselineAttemptQuestion,
+  type IEBaselineAttemptProgress,
+  type IEBaselineValidationDetail,
+} from '../api';
 
 interface ExamModalProps {
   moduleId: number;
@@ -27,6 +39,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSaveRequest, setLastSaveRequest] = useState<{ questionId: number; selectedAnswer: string | null } | null>(null);
   const [savedState, setSavedState] = useState<{ attemptId: number; lastSavedAt: string } | null>(null);
+  const [submitValidation, setSubmitValidation] = useState<IEBaselineValidationDetail | null>(null);
   const initializedAttemptId = useRef<number | null>(null);
 
   const {
@@ -113,8 +126,10 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
                 ...item,
                 answer: {
                   ...item.answer,
+                  answerId: data.answerId,
                   selectedAnswer: data.selectedAnswer,
                   isAnswered: data.isAnswered,
+                  isAttached: data.isAttached,
                   lastSavedAt: data.lastSavedAt,
                 },
               }
@@ -157,6 +172,11 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
       });
     },
     onError: (error) => {
+      if (error instanceof IEBaselineApiError && error.validationDetail) {
+        setSubmitValidation(error.validationDetail);
+        return;
+      }
+
       toast({
         title: 'Unable to submit checklist',
         description: error instanceof Error ? error.message : 'Please make sure every required question is answered.',
@@ -178,8 +198,69 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
   const isError = (reviewOnly ? isHistoryError : isStartError) || isQuestionsError;
   const error = (reviewOnly ? historyError : startError) ?? questionsError;
   const isBusy = saveAnswerMutation.isPending || submitAttemptMutation.isPending;
+  const isMissingAnswerShell = Boolean(question && !isReviewMode && question.answer.answerId === null);
+  const hasAttachmentSection = question?.attachmentRequirement === 'required' || question?.attachmentRequirement === 'optional';
+  const currentAnswerId = question?.answer.answerId ?? null;
   const canSubmit = totalQuestions > 0 && answeredCount >= totalQuestions;
   const requiresAnswerToContinue = !isReviewMode && options.length > 0;
+
+  const {
+    data: attachmentData,
+    isLoading: isLoadingAttachments,
+    isError: isAttachmentsError,
+    error: attachmentsError,
+  } = useQuery({
+    queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId],
+    queryFn: () => ieBaselineApi.modules.attachments.list(moduleId, currentAnswerId!),
+    enabled: Boolean(hasAttachmentSection && currentAnswerId),
+    refetchOnWindowFocus: false,
+  });
+
+  const uploadAttachmentMutation = useMutation({
+    mutationFn: ({ answerId, file }: { answerId: number; file: File }) =>
+      ieBaselineApi.modules.attachments.upload(moduleId, answerId, file),
+    onSuccess: async () => {
+      toast({
+        title: 'Attachment uploaded',
+        description: 'The evidence file was linked to this answer.',
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
+      ]);
+    },
+    onError: (error) => {
+      toast({
+        title: 'Attachment upload failed',
+        description: error instanceof Error ? error.message : 'Please try another file or contact support.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: (attachmentUnqId: string) =>
+      ieBaselineApi.modules.attachments.remove(moduleId, attachmentUnqId),
+    onSuccess: async () => {
+      toast({
+        title: 'Attachment removed',
+        description: 'The evidence file was removed from this answer.',
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
+      ]);
+    },
+    onError: (error) => {
+      toast({
+        title: 'Unable to remove attachment',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const isAttachmentBusy = uploadAttachmentMutation.isPending || deleteAttachmentMutation.isPending;
 
   useEffect(() => {
     if (!attemptQuestionsData || initializedAttemptId.current === attemptQuestionsData.attempt.attemptId) return;
@@ -211,7 +292,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
   }, [attemptQuestionsData]);
 
   const setSelectedOption = (value: string) => {
-    if (!question || isReviewMode) return;
+    if (!question || isReviewMode || isMissingAnswerShell) return;
     setAnswers((current) => ({
       ...current,
       [question.questionId]: value,
@@ -222,7 +303,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
   };
 
   const clearSelectedOption = () => {
-    if (!question || !selectedOption || isReviewMode) return;
+    if (!question || !selectedOption || isReviewMode || isMissingAnswerShell) return;
 
     setAnswers((current) => {
       const next = { ...current };
@@ -236,6 +317,10 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
 
   const persistCurrentAnswer = async () => {
     if (!question || !attemptId || isReviewMode) return;
+    if (question.answer.answerId === null) {
+      setSaveError('This question is missing its backend answer shell. Please close and reopen the checklist, then try again.');
+      throw new Error('Answer shell is missing.');
+    }
     const answer = answers[question.questionId];
     if (!answer) return;
 
@@ -260,6 +345,25 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
 
     if (isReviewMode) return;
     submitAttemptMutation.mutate();
+  };
+
+  const uploadAttachment = (file: File | undefined) => {
+    if (!file || !currentAnswerId) return;
+    uploadAttachmentMutation.mutate({ answerId: currentAnswerId, file });
+  };
+
+  const removeAttachment = (attachment: IEBaselineAttachment) => {
+    const confirmed = window.confirm(`Remove attachment "${attachment.originalFileName}"?`);
+    if (!confirmed) return;
+    deleteAttachmentMutation.mutate(attachment.attachmentUnqId);
+  };
+
+  const goToValidationQuestion = (questionId: number) => {
+    const index = questions.findIndex((item) => item.questionId === questionId);
+    if (index >= 0) {
+      setCurrentIndex(index);
+      setSubmitValidation(null);
+    }
   };
 
   const handleClose = () => {
@@ -298,6 +402,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
   };
 
   const modalContent = (
+    <>
     <div className="fixed inset-0 z-[9999] flex flex-col bg-black/95 backdrop-blur-md animate-in fade-in duration-300 overflow-hidden">
       <div className="relative flex-shrink-0 flex flex-col items-center pt-4 pb-3 px-6 gap-2">
         <div className="flex items-center gap-3 mb-1">
@@ -417,8 +522,14 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
                         </div>
                       )}
 
+                      {isMissingAnswerShell && (
+                        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                          This question is missing its backend answer shell. Close and reopen the checklist; if it remains, the attempt needs backend shell backfill.
+                        </div>
+                      )}
+
                       {options.length > 0 ? (
-                        <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={isReviewMode || submitAttemptMutation.isPending} className="grid gap-2">
+                        <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={isReviewMode || isMissingAnswerShell || submitAttemptMutation.isPending} className="grid gap-2">
                           {options.map((option) => (
                             <label
                               key={option.id}
@@ -446,6 +557,21 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
                       {isReviewMode && question.answer.isAnswered && (
                         <AnswerScore answer={question.answer} />
                       )}
+
+                      {hasAttachmentSection && (
+                        <AttachmentSection
+                          attachments={attachmentData?.attachments ?? []}
+                          requirement={question.attachmentRequirement}
+                          canEdit={!isReviewMode && !isMissingAnswerShell}
+                          answerId={currentAnswerId}
+                          isLoading={isLoadingAttachments}
+                          isError={isAttachmentsError}
+                          error={attachmentsError}
+                          isBusy={isAttachmentBusy}
+                          onUpload={uploadAttachment}
+                          onRemove={removeAttachment}
+                        />
+                      )}
                     </div>
 
                     <div className="pt-2 flex flex-col sm:flex-row justify-between gap-3">
@@ -455,7 +581,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
                       </Button>
                       <div className="flex flex-col sm:flex-row gap-3">
                         {!isReviewMode && (
-                          <Button variant="outline" size="lg" className="gap-2" disabled={!selectedOption || isBusy} onClick={clearSelectedOption}>
+                          <Button variant="outline" size="lg" className="gap-2" disabled={!selectedOption || isBusy || isMissingAnswerShell} onClick={clearSelectedOption}>
                             <Eraser className="w-4 h-4" />
                             Clear
                           </Button>
@@ -463,7 +589,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
                         <Button
                           size="lg"
                           className="gap-2"
-                          disabled={(requiresAnswerToContinue && !selectedOption) || isBusy || (currentIndex === questions.length - 1 && !isReviewMode && !canSubmit)}
+                          disabled={(requiresAnswerToContinue && !selectedOption) || isBusy || isMissingAnswerShell || (currentIndex === questions.length - 1 && !isReviewMode && !canSubmit)}
                           onClick={currentIndex === questions.length - 1 && isReviewMode ? onClose : goNext}
                         >
                           {submitAttemptMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -486,6 +612,15 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
         </div>
       </div>
     </div>
+    <SubmitValidationDialog
+      validation={submitValidation}
+      questions={questions}
+      onOpenChange={(open) => {
+        if (!open) setSubmitValidation(null);
+      }}
+      onGoToQuestion={goToValidationQuestion}
+    />
+    </>
   );
 
   return ReactDOM.createPortal(modalContent, document.body);
@@ -574,6 +709,207 @@ function AnswerScore({ answer }: { answer: IEBaselineAttemptAnswer }) {
       </div>
     </div>
   );
+}
+
+function AttachmentSection({
+  attachments,
+  requirement,
+  canEdit,
+  answerId,
+  isLoading,
+  isError,
+  error,
+  isBusy,
+  onUpload,
+  onRemove,
+}: {
+  attachments: IEBaselineAttachment[];
+  requirement: string | null;
+  canEdit: boolean;
+  answerId: number | null;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  isBusy: boolean;
+  onUpload: (file: File | undefined) => void;
+  onRemove: (attachment: IEBaselineAttachment) => void;
+}) {
+  const fileInputId = answerId ? `attachment-upload-${answerId}` : 'attachment-upload-missing';
+  const isRequired = requirement === 'required';
+
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-md border border-primary/20 bg-primary/10 flex items-center justify-center shrink-0">
+            <Paperclip className="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-foreground">{isRequired ? 'Required attachment' : 'Optional attachment'}</h4>
+            <p className="text-xs text-muted-foreground">
+              {isRequired ? 'Supporting evidence is required before finishing this checklist.' : 'Add supporting evidence if needed.'}
+            </p>
+          </div>
+        </div>
+
+        {canEdit && (
+          <div className="shrink-0">
+            <Input
+              id={fileInputId}
+              type="file"
+              className="sr-only"
+              disabled={isBusy || !answerId}
+              onChange={(event) => {
+                onUpload(event.currentTarget.files?.[0]);
+                event.currentTarget.value = '';
+              }}
+            />
+            <Button asChild variant="outline" size="sm" className="gap-2" disabled={isBusy || !answerId}>
+              <label htmlFor={fileInputId} className={cn('cursor-pointer', (isBusy || !answerId) && 'pointer-events-none')}>
+                {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                Upload
+              </label>
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {isLoading && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading attachments
+          </div>
+        )}
+
+        {isError && (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {error instanceof Error ? error.message : 'Unable to load attachments.'}
+          </div>
+        )}
+
+        {!isLoading && !isError && attachments.length === 0 && (
+          <div className="rounded-md border border-dashed border-border bg-background/50 p-3 text-sm text-muted-foreground">
+            No attachments uploaded for this answer yet.
+          </div>
+        )}
+
+        {attachments.map((attachment) => (
+          <div key={attachment.attachmentUnqId} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-md border border-border bg-background/80 p-3">
+            <div className="min-w-0 flex items-start gap-3">
+              <FileText className="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{attachment.originalFileName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {[formatFileSize(attachment.fileSizeBytes), formatDateTime(attachment.createdAt)].filter(Boolean).join(' | ')}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Download attachment">
+                <a href={ieBaselineApi.modules.attachments.downloadUrl(attachment.attachmentUnqId, IEBASELINE_DEMO_USER_ID)}>
+                  <Download className="w-4 h-4" />
+                  <span className="sr-only">Download attachment</span>
+                </a>
+              </Button>
+              {canEdit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  title="Remove attachment"
+                  disabled={isBusy}
+                  onClick={() => onRemove(attachment)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="sr-only">Remove attachment</span>
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SubmitValidationDialog({
+  validation,
+  questions,
+  onOpenChange,
+  onGoToQuestion,
+}: {
+  validation: IEBaselineValidationDetail | null;
+  questions: IEBaselineAttemptQuestion[];
+  onOpenChange: (open: boolean) => void;
+  onGoToQuestion: (questionId: number) => void;
+}) {
+  const missing = validation?.missing_questions ?? validation?.unanswered_questions ?? [];
+  const title = validation?.code === 'REQUIRED_ATTACHMENTS_MISSING'
+    ? 'Required attachments missing'
+    : 'Checklist needs attention';
+
+  return (
+    <Dialog open={Boolean(validation)} onOpenChange={onOpenChange}>
+      <DialogContent className="z-[10000]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {validation?.message ?? 'Please review the highlighted questions before finishing.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          {missing.map((item) => {
+            const question = questions.find((candidate) => candidate.questionId === item.question_id);
+            const label = item.question_no ?? question?.questionNo ?? item.question_id;
+
+            return (
+              <Button
+                key={item.question_id}
+                type="button"
+                variant="outline"
+                className="justify-start gap-2 text-left"
+                onClick={() => onGoToQuestion(item.question_id)}
+              >
+                <ArrowRight className="w-4 h-4 shrink-0" />
+                Question {label}
+              </Button>
+            );
+          })}
+        </div>
+        <DialogFooter>
+          <Button type="button" onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function formatFileSize(value: number | null | undefined) {
+  if (value === null || value === undefined) return null;
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let size = value / 1024;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[unitIndex]}`;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
 }
 
 function QuestionContext({ question }: { question: { keyword: string | null; ibpmL2: string | null; ibpmL3: string | null; reference: string | null; memo: string | null } }) {

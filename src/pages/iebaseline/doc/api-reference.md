@@ -6,6 +6,25 @@ Authentication: no authentication is currently required for any endpoint.
 
 Response format: endpoints return JSON.
 
+## Coding Agent Invariants
+
+When changing this backend, preserve these workflow invariants unless a new task
+explicitly replaces them:
+
+* Attempt start creates or backfills one `user_exam_answer` shell per module
+  question in the same transaction as attempt creation/resume handling.
+* `user_exam_answer` row existence does not mean a question is complete.
+  Completion and progress must use `is_answered = true`.
+* Question loading after attempt start should expose a usable
+  `answer.answerId` for every question, so attachments can link to an answer
+  before the learner clicks **Next Question**.
+* Save and clear update the existing shell for `(attempt_id, question_id)`.
+  They must not create a new answer row.
+* Submit must reject unanswered shells before scoring. Do not mark blank/null
+  shells as answered during submit.
+* Required attachment validation still uses `is_attached = true` after the
+  unanswered-shell check passes.
+
 ## GET /health
 
 Checks whether the backend process is running and can respond to requests.
@@ -624,10 +643,15 @@ POST /api/iebaseline/modules/3/attempts/start?user_id=1
 * Return the existing `In Progress` attempt for the user/module when one exists.
   This preserves checkpoint resume for an unfinished checklist.
 * If no `In Progress` attempt exists, create a new attempt with the next
-  `attemptNo`, `attemptStatus: "In Progress"`, `lastSavedAt: null`, and no
-  prefilled answer rows.
+  `attemptNo`, `attemptStatus: "In Progress"`, and `lastSavedAt: null`.
+* After selecting or creating the editable attempt, insert missing
+  `user_exam_answer` shells for every `baseline_checklist` row in the module.
+  This must be idempotent, for example using
+  `ON CONFLICT (attempt_id, question_id) DO NOTHING`.
+* Shell values are `selected_answer = NULL`, `is_answered = FALSE`,
+  `is_attached = FALSE`, scoring fields null, and timestamps set.
 * The start action is the attempt creation boundary. Do not wait for the first
-  saved answer before inserting `user_exam_attempt`.
+  saved answer before inserting `user_exam_attempt` or answer shells.
 * Do not reuse `Completed` or `Submitted` attempts for editable starts or
   retakes. Those attempts remain available for read-only review through attempt
   history and attempt questions.
@@ -694,6 +718,10 @@ Status: `200 OK`
 Fetches all questions for an attempt and merges saved answer state into each
 question.
 
+After a valid attempt start, every question should have an `answer.answerId`.
+If `answerId` is null for an in-progress attempt, treat that as a shell creation
+or backfill bug, not as normal unanswered state.
+
 ### Request
 
 | Item | Value |
@@ -755,7 +783,7 @@ Status: `200 OK`
       "attachmentRequirement": "required",
       "attachmentApprovalRequired": false,
       "answer": {
-        "answerId": null,
+        "answerId": 5001,
         "selectedAnswer": null,
         "isAnswered": false,
         "isAttached": false,
@@ -784,10 +812,12 @@ The legacy `options` string remains in the payload for compatibility.
 Questions with `attachmentRequirement: "required"` should display the frontend
 attachment section. `answer.isAttached` is maintained by the backend attachment
 APIs and indicates whether that saved answer currently has evidence linked.
+Attachment upload should use `answer.answerId`; it should not wait for the
+answer save endpoint.
 
 ## PUT /api/iebaseline/attempts/{attempt_id}/questions/{question_id}/answer
 
-Saves or updates one answer for an in-progress attempt.
+Updates one answer shell for an in-progress attempt.
 
 The frontend treats this endpoint as a forward-navigation save, not an
 autosave. Selecting or changing an option in the UI is local state only. The
@@ -810,11 +840,13 @@ whitespace-only values are treated as not answered.
 
 * Validate that the attempt exists and is still editable.
 * Validate that the question belongs to the attempt's module.
-* Upsert exactly one `user_exam_answer` row per `(attempt_id, question_id)`.
-* If the learner changes an answer within the same attempt, update the existing
-  row instead of inserting a duplicate row.
+* Locate the existing `user_exam_answer` shell by `(attempt_id, question_id)`.
+* If the shell does not exist, return a clear error such as
+  `"Answer shell not found"`; do not create a replacement row here.
+* If the learner changes an answer within the same attempt, update that same
+  row.
 * Update answer/progress fields only, including `selectedAnswer`, `isAnswered`,
-  answered count, progress percentage, and `lastSavedAt`.
+  `answerId`, answered count, progress percentage, and `lastSavedAt`.
 * Do not calculate scoring, correctness, final score, result status, completion
   timestamps, or assignment completion in this endpoint.
 
@@ -839,6 +871,7 @@ Status: `200 OK`
 {
   "attemptId": 15,
   "questionId": 25,
+  "answerId": 5001,
   "selectedAnswer": "Yes",
   "isAnswered": true,
   "isAttached": false,
@@ -860,6 +893,12 @@ Status: `200 OK`
 ```json
 {
   "detail": "Question does not belong to this module"
+}
+```
+
+```json
+{
+  "detail": "Answer shell not found"
 }
 ```
 
@@ -886,6 +925,7 @@ The response shape is the same as save answer.
 {
   "attemptId": 15,
   "questionId": 25,
+  "answerId": 5001,
   "selectedAnswer": null,
   "isAnswered": false,
   "isAttached": false,
@@ -908,6 +948,10 @@ Before calling submit, the frontend saves the current final answer with
 `PUT /api/iebaseline/attempts/{attempt_id}/questions/{question_id}/answer`.
 This submit endpoint is the only endpoint that should calculate scoring or
 complete the attempt.
+
+Submit is not a fallback save. The backend must reject any shell that still has
+`is_answered = false`; the oldest unanswered shell is the checkpoint the
+frontend should return to.
 
 ### Request
 
@@ -984,17 +1028,18 @@ the scored answer fields for review:
 The backend should:
 
 * Validate attempt ownership/editability.
-* Validate that all required questions have been answered.
+* Validate that all answer shells for the attempt have `is_answered = true`.
+  Reject before scoring when any shell is still false.
+* Validate required attachments after unanswered-shell validation.
 * Calculate scores in one transaction.
 * Load answer options from the module's configured `scoring_metric_id`.
 * Never hardcode answer values such as `Yes`, `No`, or `Partial`.
 * Match scoring options against the selected answer's leading label before `-`
   when checklist options store descriptive labels such as `Yes - ...`.
 * Calculate each answer using `baseline_checklist.available_points * scoring_metric_option.score_multiplier`.
-* Treat unanswered or `null` answers as `0` awarded score against the question's available points.
+* Treat unmatched saved selections as `0` awarded score against the question's available points.
 * Treat selected options with `scoring_metric_option.is_applicable = false` as excluded from scoring.
   These rows remain answered, but store `score_awarded` and `maximum_score` as `null`.
-* Mark submitted null and non-applicable answer rows as answered after scoring.
 * Store `is_correct`, `score_awarded`, and `maximum_score` on `user_exam_answer`.
 * Keep `is_correct` as `null` for modules that do not have a configured correct-answer key.
 * Store `score`, `correct_answers`, `submitted_at`, and `completed_at` on `user_exam_attempt`.
@@ -1011,6 +1056,8 @@ The backend should expect this request sequence from the current frontend:
   question before advancing.
 * Clicking **Finish Checklist** sends one save request for the final question,
   then sends this submit request.
+* If submit returns `UNANSWERED_QUESTIONS`, navigate back to the returned
+  unanswered question instead of treating the attempt as complete.
 * Closing the modal or browser does not save unsaved local selection changes.
 * Reopening the module resumes from the latest saved `In Progress` attempt and
   saved `user_exam_answer` rows.
@@ -1059,6 +1106,24 @@ Future backend requirement:
 ```json
 {
   "detail": "Attempt not found"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": {
+    "success": false,
+    "code": "UNANSWERED_QUESTIONS",
+    "message": "All questions must be answered before submit.",
+    "unanswered_questions": [
+      {
+        "question_id": 25,
+        "question_no": "10"
+      }
+    ]
+  }
 }
 ```
 

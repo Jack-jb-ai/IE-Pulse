@@ -445,7 +445,7 @@ ON DELETE RESTRICT;
 
 # User Exam Attempt and Answer Structure
 
-This section describes the PostgreSQL tables used to track checklist attempts, autosaved user answers, progress, scoring, and completion results.
+This section describes the PostgreSQL tables used to track checklist attempts, saved user answers, progress, scoring, and completion results.
 
 ## Overview
 
@@ -464,7 +464,7 @@ The exam-related database structure uses the following tables:
 * `user_exam_answer`
 
   * Stores the user's answer for each question in an attempt.
-  * Supports autosave, checkpoints, resuming, and answer review.
+  * Supports answer checkpoints, resuming, attachments, and answer review.
 
 * `baseline_checklist`
 
@@ -656,7 +656,7 @@ CREATE TABLE user_exam_attempt (
 | `correct_answers`          | `INTEGER`             | Not null, nonnegative | Number of answers marked correct.                  |
 | `score`                    | `NUMERIC(5,2)`        | Nullable, 0–100       | Percentage score for the attempt.                  |
 | `started_at`               | `TIMESTAMPTZ`         | Nullable              | Time when the user started the attempt.            |
-| `last_saved_at`            | `TIMESTAMPTZ`         | Nullable              | Most recent checkpoint or autosave time.           |
+| `last_saved_at`            | `TIMESTAMPTZ`         | Nullable              | Most recent checkpoint/save time.                  |
 | `submitted_at`             | `TIMESTAMPTZ`         | Nullable              | Time when the user submitted the attempt.          |
 | `completed_at`             | `TIMESTAMPTZ`         | Nullable              | Time when attempt processing was completed.        |
 | `created_at`               | `TIMESTAMPTZ`         | Not null              | Time when the attempt record was created.          |
@@ -776,7 +776,7 @@ CREATE TABLE user_exam_answer (
 | `score_awarded`   | `NUMERIC(8,2)` | Nullable, nonnegative | Score awarded for this answer.                          |
 | `maximum_score`   | `NUMERIC(8,2)` | Nullable, nonnegative | Maximum possible score for this question.               |
 | `answered_at`     | `TIMESTAMPTZ`  | Nullable              | Time when the question was answered.                    |
-| `last_saved_at`   | `TIMESTAMPTZ`  | Not null              | Most recent autosave time for the answer.               |
+| `last_saved_at`   | `TIMESTAMPTZ`  | Not null              | Most recent save time for the answer.                    |
 | `created_at`      | `TIMESTAMPTZ`  | Not null              | Time when the answer record was created.                |
 | `updated_at`      | `TIMESTAMPTZ`  | Not null              | Time when the answer record was last updated.           |
 
@@ -798,7 +798,7 @@ CREATE TABLE user_exam_answer (
 
 # Indexes
 
-The following indexes improve common lookup, autosave, resume, reporting, and scoring queries.
+The following indexes improve common lookup, save, resume, reporting, and scoring queries.
 
 ```sql
 CREATE INDEX idx_user_exam_attempt_user
@@ -976,6 +976,7 @@ module_id FK
 question_id FK
 selected_answer
 is_answered
+is_attached
 is_correct
 score_awarded
 maximum_score
@@ -1011,21 +1012,33 @@ When a user clicks **Start Course** or **Start Checklist**:
 6. Count the questions for the selected module.
 7. Set `attempt_status` to `In Progress`.
 8. Set `started_at` to the current timestamp.
-9. Return the new or existing `attempt_id` to the frontend.
+9. Create missing `user_exam_answer` shell rows for every question in the
+   selected module.
+10. Return the new or existing `attempt_id` to the frontend.
 
----
+The attempt start operation is also the answer-shell creation boundary. The
+backend should create or backfill one `user_exam_answer` row per
+`baseline_checklist` question for the attempt, in the same transaction used to
+create or resume the attempt.
 
-## Saving an Answer
+Example shell values:
 
-The frontend should save an answer whenever the user:
+```text
+attempt_id = current attempt
+user_id = attempt user
+module_id = attempt module
+question_id = baseline_checklist.id
+selected_answer = NULL
+is_answered = FALSE
+is_attached = FALSE
+is_correct = NULL
+score_awarded = NULL
+maximum_score = NULL
+answered_at = NULL
+```
 
-* Selects an option.
-* Changes an option.
-* Clicks Next.
-* Navigates to another question.
-* Pauses or exits the checklist.
-
-The backend should use an upsert operation.
+Use an idempotent insert so older in-progress attempts and partially-created
+attempts can be repaired safely:
 
 ```sql
 INSERT INTO user_exam_answer (
@@ -1035,26 +1048,69 @@ INSERT INTO user_exam_answer (
     question_id,
     selected_answer,
     is_answered,
+    is_attached,
+    is_correct,
+    score_awarded,
+    maximum_score,
     answered_at,
-    last_saved_at
+    last_saved_at,
+    created_at,
+    updated_at
 )
-VALUES (
+SELECT
     $1,
     $2,
     $3,
-    $4,
-    $5,
-    TRUE,
+    checklist.id,
+    NULL,
+    FALSE,
+    FALSE,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
-)
+FROM baseline_checklist checklist
+WHERE checklist.module_id = $3
 ON CONFLICT (attempt_id, question_id)
-DO UPDATE SET
-    selected_answer = EXCLUDED.selected_answer,
-    is_answered = TRUE,
-    answered_at = CURRENT_TIMESTAMP,
+DO NOTHING;
+```
+
+---
+
+## Saving an Answer
+
+The current frontend treats answer saving as forward-navigation save, not
+option-change autosave. It sends a save request when the learner clicks
+**Next Question**, and sends one final save before submit.
+
+The backend must update the existing shell row. It should not insert a new
+`user_exam_answer` row from the save endpoint.
+
+```sql
+UPDATE user_exam_answer
+SET
+    selected_answer = $3,
+    is_answered = $4,
+    is_correct = NULL,
+    score_awarded = NULL,
+    maximum_score = NULL,
+    answered_at = CASE
+        WHEN $4 THEN COALESCE(answered_at, CURRENT_TIMESTAMP)
+        ELSE NULL
+    END,
     last_saved_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP;
+    updated_at = CURRENT_TIMESTAMP
+WHERE attempt_id = $1
+  AND question_id = $2
+RETURNING
+    answer_id,
+    selected_answer,
+    is_answered,
+    is_attached,
+    last_saved_at;
 ```
 
 Parameter meanings:
@@ -1062,12 +1118,13 @@ Parameter meanings:
 | Parameter | Description     |
 | --------- | --------------- |
 | `$1`      | Attempt ID      |
-| `$2`      | User ID         |
-| `$3`      | Module ID       |
-| `$4`      | Question ID     |
-| `$5`      | Selected answer |
+| `$2`      | Question ID     |
+| `$3`      | Selected answer |
+| `$4`      | Whether the normalized answer is present |
 
-The backend should preferably retrieve `user_id` and `module_id` from `user_exam_attempt` instead of accepting them directly from the frontend.
+The backend should retrieve `user_id` and `module_id` from
+`user_exam_attempt`, validate the question belongs to that module, and return a
+clear error such as `Answer shell not found` if the shell row is missing.
 
 ---
 
@@ -1085,7 +1142,13 @@ SET
     last_saved_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE attempt_id = $1
-  AND question_id = $2;
+  AND question_id = $2
+RETURNING
+    answer_id,
+    selected_answer,
+    is_answered,
+    is_attached,
+    last_saved_at;
 ```
 
 ---
@@ -1269,6 +1332,7 @@ Responsibilities:
 * Validate the module assignment.
 * Resume an existing in-progress attempt when appropriate.
 * Otherwise create a new attempt.
+* Create or backfill missing answer shells for the attempt.
 * Return attempt metadata and progress.
 
 ---
@@ -1319,9 +1383,9 @@ Responsibilities:
 * Validate attempt ownership.
 * Confirm the attempt is editable.
 * Confirm the question belongs to the attempt module.
-* Insert or update the answer.
+* Update the existing `user_exam_answer` shell.
 * Update attempt progress.
-* Return the saved answer and updated progress.
+* Return the saved answer, existing `answerId`, and updated progress.
 
 Example response:
 
@@ -1329,8 +1393,10 @@ Example response:
 {
   "attemptId": 15,
   "questionId": 25,
+  "answerId": 5001,
   "selectedAnswer": "Yes",
   "isAnswered": true,
+  "isAttached": false,
   "answeredQuestions": 13,
   "totalQuestions": 20,
   "progressPercentage": 65,
@@ -1351,6 +1417,7 @@ Responsibilities:
 * Validate attempt ownership.
 * Clear the selected answer.
 * Set `is_answered` to false.
+* Return the existing `answerId`.
 * Recalculate progress.
 
 ---
@@ -1364,7 +1431,8 @@ POST /api/iebaseline/attempts/:attemptId/submit
 Responsibilities:
 
 * Validate attempt ownership.
-* Validate required answers.
+* Validate all answer shells have `is_answered = true`.
+* Validate required attachments have `is_attached = true`.
 * Calculate the result.
 * Save question scores.
 * Save the final attempt score.
@@ -1396,7 +1464,7 @@ The frontend should:
 4. Save each answer individually.
 5. Display a saving indicator during the request.
 6. Display a saved indicator after success.
-7. Retry or show an error if autosave fails.
+7. Retry or show an error if saving fails.
 8. Calculate progress using the backend response.
 9. Allow the user to leave and resume later.
 10. Submit the attempt only through the submit endpoint.
@@ -1419,7 +1487,12 @@ Authentication should determine the current user.
 * Use database transactions when submitting and scoring an attempt.
 * Validate that `attempt_id`, `user_id`, `module_id`, and `question_id` belong together.
 * Do not trust ownership information received from the frontend.
-* Use `ON CONFLICT (attempt_id, question_id)` for autosave.
+* Create answer shells at attempt start using an idempotent insert with
+  `ON CONFLICT (attempt_id, question_id) DO NOTHING`.
+* Save and clear endpoints should update existing shells only; do not create
+  answer rows there.
+* Use `is_answered`, not answer row existence, for completion and checkpoint
+  logic.
 * Use parameterized SQL queries.
 * Do not build SQL using string concatenation.
 * Update `updated_at` explicitly unless database triggers are added.
