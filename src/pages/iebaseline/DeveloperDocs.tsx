@@ -11,6 +11,7 @@ const routes = [
   { path: '/iebaseline/module/:moduleId', page: 'ModuleOverview.tsx', purpose: 'Module overview and checklist entry' },
   { path: '/iebaseline/module/:moduleId/results', page: 'FinalResults.tsx', purpose: 'Final submitted/completed attempt results' },
   { path: '/iebaseline/assign', page: 'AssignModules.tsx', purpose: 'User/module assignment management' },
+  { path: '/iebaseline/users', page: 'UserManagement.tsx', purpose: 'Create, update, and delete user_master records' },
   { path: '/iebaseline/edit', page: 'IEBaselineEdit.tsx', purpose: 'Legacy/mock module management landing page' },
   { path: '/iebaseline/admin/:moduleId', page: 'ModuleAdmin.tsx', purpose: 'Legacy/mock module editor' },
   { path: '/iebaseline/developer-docs', page: 'DeveloperDocs.tsx', purpose: 'In-app developer reference' },
@@ -258,6 +259,70 @@ const pages = [
     ],
   },
   {
+    name: 'User Management',
+    route: '/iebaseline/users',
+    file: 'UserManagement.tsx',
+    owner: 'User profile creation, maintenance, reporting-line assignment, and delete workflow',
+    source: 'User Management APIs for user search, full user profile, role options, write operations, and delete preview.',
+    features: [
+      'Uses Create User, Update User, and Delete User tabs inside one route.',
+      'Creates user_master rows through the dedicated create API.',
+      'Searches users by name, WD ID, and email for update/delete selection.',
+      'Loads one full user profile before editing so email, department, role, and reports_to are preserved.',
+      'Uses a searchable reports_to selector and excludes the edited user from manager results.',
+      'Loads role options from the backend and falls back to seeded role labels if roles are unavailable.',
+      'Previews related record counts and blocking reasons before delete confirmation.',
+      'Invalidates IE Baseline user search/list queries after create, update, and delete.',
+    ],
+    apis: [
+      'GET /users/search?q=...',
+      'GET /users/{user_id}',
+      'POST /users/create',
+      'PUT /users/{user_id}',
+      'DELETE /users/{user_id}',
+      'GET /users/{user_id}/delete-preview',
+      'GET /roles',
+    ],
+    actions: [
+      {
+        trigger: 'Create user',
+        condition: 'Enabled when name is present and no create request is pending.',
+        result: 'Submits a normalized user payload, clears the form on success, and refreshes user queries.',
+        api: 'POST /users/create.',
+      },
+      {
+        trigger: 'Select user to update',
+        condition: 'User searches by name, WD ID, or email in the Update User tab.',
+        result: 'Sets selectedUser and loads the full profile into the edit form.',
+        api: 'GET /users/search, then GET /users/{user_id}.',
+      },
+      {
+        trigger: 'Reports To selector',
+        condition: 'Available in Create User and Update User forms.',
+        result: 'Stores the selected manager user_id in reports_to or clears it to null.',
+        api: 'GET /users/search with optional exclude_user_id.',
+      },
+      {
+        trigger: 'Save changes',
+        condition: 'Enabled when an update user is selected, name is present, and profile loading is complete.',
+        result: 'Saves the full user payload and refreshes user queries.',
+        api: 'PUT /users/{user_id}.',
+      },
+      {
+        trigger: 'Select user to delete',
+        condition: 'User searches by name, WD ID, or email in the Delete User tab.',
+        result: 'Sets selectedUser and loads delete impact data.',
+        api: 'GET /users/search, then GET /users/{user_id}/delete-preview.',
+      },
+      {
+        trigger: 'Delete user / Confirm delete',
+        condition: 'Requires confirmation in the Delete User tab.',
+        result: 'Deletes the selected user, clears selection on success, and refreshes user queries.',
+        api: 'DELETE /users/{user_id}.',
+      },
+    ],
+  },
+  {
     name: 'Edit/Admin',
     route: '/iebaseline/edit, /iebaseline/admin/:moduleId',
     file: 'IEBaselineEdit.tsx, ModuleAdmin.tsx',
@@ -302,6 +367,13 @@ const apiCalls = [
   { method: 'POST', path: '/users/resolve-current', wrapper: 'users.resolveCurrent', usedBy: 'Dashboard, Module Overview, Final Results, Assign Modules', purpose: 'Resolve AD or staging current user to user_master.user_id' },
   { method: 'GET', path: '/home?user_id=...', wrapper: 'home.get', usedBy: 'Dashboard, Module Overview, Final Results', purpose: 'Load learner profile and assigned modules' },
   { method: 'GET', path: '/users', wrapper: 'users.list', usedBy: 'Assign Modules', purpose: 'Load assignable users' },
+  { method: 'GET', path: '/users/search?q=...', wrapper: 'users.search', usedBy: 'User Management', purpose: 'Search users by name, WD ID, or email' },
+  { method: 'GET', path: '/users/{user_id}', wrapper: 'users.get', usedBy: 'User Management', purpose: 'Load one full user profile' },
+  { method: 'POST', path: '/users/create', wrapper: 'users.create', usedBy: 'User Management', purpose: 'Create a user_master row' },
+  { method: 'PUT', path: '/users/{user_id}', wrapper: 'users.update', usedBy: 'User Management', purpose: 'Update a user_master row' },
+  { method: 'DELETE', path: '/users/{user_id}', wrapper: 'users.remove', usedBy: 'User Management', purpose: 'Delete a user_master row' },
+  { method: 'GET', path: '/users/{user_id}/delete-preview', wrapper: 'users.deletePreview', usedBy: 'User Management', purpose: 'Preview related records before delete' },
+  { method: 'GET', path: '/roles', wrapper: 'roles.list', usedBy: 'User Management', purpose: 'Load role dropdown options' },
   { method: 'GET', path: '/modules', wrapper: 'modules.list', usedBy: 'Assign Modules', purpose: 'Load modules available for assignment' },
   { method: 'GET', path: '/users/{user_id}/modules', wrapper: 'users.modules.get', usedBy: 'Assign Modules', purpose: 'Load selected user module IDs' },
   { method: 'PUT', path: '/users/{user_id}/modules', wrapper: 'users.modules.update', usedBy: 'Assign Modules', purpose: 'Replace selected user module assignments' },
@@ -326,9 +398,10 @@ const flow = [
   'Submit navigates to /iebaseline/module/:moduleId/results with the submit result in navigation state.',
   'Final results reloads home and attempt history, then displays the latest submitted/completed attempt.',
   'Assign modules loads users/modules/user assignments, saves changes, then invalidates IE Baseline queries.',
+  'User Management searches users, loads full profiles for edits/deletes, and writes through dedicated user_master APIs.',
 ];
 
-const usedByOptions = ['All', 'Assign Modules', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview'];
+const usedByOptions = ['All', 'Assign Modules', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'User Management'];
 
 function methodClass(method: string) {
   switch (method) {

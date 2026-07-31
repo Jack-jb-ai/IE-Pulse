@@ -63,6 +63,7 @@ npm run build:iebaseline
 | `/iebaseline/module/:moduleId` | `ModuleOverview.tsx` | Module overview and checklist entry |
 | `/iebaseline/module/:moduleId/results` | `FinalResults.tsx` | Final submitted/completed attempt results |
 | `/iebaseline/assign` | `AssignModules.tsx` | User/module assignment management |
+| `/iebaseline/users` | `UserManagement.tsx` | Create, update, and delete `user_master` records |
 | `/iebaseline/edit` | `IEBaselineEdit.tsx` | Legacy/mock module management landing page |
 | `/iebaseline/admin/:moduleId` | `ModuleAdmin.tsx` | Legacy/mock module editor |
 | `/iebaseline/developer-docs` | `DeveloperDocs.tsx` | In-app developer reference |
@@ -228,6 +229,47 @@ Actions and triggers:
 | Apply changes / Confirm apply | Unsaved assignment changes exist | Saves sorted `module_ids` and invalidates related queries | `PUT /users/{user_id}/modules` |
 | Back to Users | A user is selected | Clears selected user and draft state | No API call |
 
+### User Management
+
+File: `src/pages/iebaseline/UserManagement.tsx`
+
+Features:
+
+* Uses Create User, Update User, and Delete User tabs inside one route.
+* Creates `user_master` rows through the dedicated create API.
+* Searches users by name, WD ID, and email for update/delete selection.
+* Loads one full user profile before editing so email, department, role, and
+  `reports_to` are preserved.
+* Uses a searchable `reports_to` selector and excludes the edited user from
+  manager results.
+* Loads role options from the backend and falls back to seeded role labels if
+  roles are unavailable.
+* Previews related record counts and blocking reasons before delete
+  confirmation.
+* Invalidates IE Baseline user search/list queries after create, update, and
+  delete.
+
+API calls:
+
+* `GET /users/search?q=...`
+* `GET /users/{user_id}`
+* `POST /users/create`
+* `PUT /users/{user_id}`
+* `DELETE /users/{user_id}`
+* `GET /users/{user_id}/delete-preview`
+* `GET /roles`
+
+Actions and triggers:
+
+| Trigger | Condition | Result | API impact |
+| --- | --- | --- | --- |
+| Create user | Name is present and no create request is pending | Submits a normalized user payload, clears the form on success, and refreshes user queries | `POST /users/create` |
+| Select user to update | User searches by name, WD ID, or email in the Update User tab | Sets selected user and loads the full profile into the edit form | `GET /users/search`, then `GET /users/{user_id}` |
+| Reports To selector | Available in Create User and Update User forms | Stores the selected manager `user_id` in `reports_to` or clears it to `null` | `GET /users/search` with optional `exclude_user_id` |
+| Save changes | Update user is selected, name is present, and profile loading is complete | Saves the full user payload and refreshes user queries | `PUT /users/{user_id}` |
+| Select user to delete | User searches by name, WD ID, or email in the Delete User tab | Sets selected user and loads delete impact data | `GET /users/search`, then `GET /users/{user_id}/delete-preview` |
+| Delete user / Confirm delete | Requires confirmation in the Delete User tab | Deletes the selected user, clears selection on success, and refreshes user queries | `DELETE /users/{user_id}` |
+
 ### Edit And Admin
 
 Files:
@@ -264,6 +306,13 @@ Actions and triggers:
 | POST | `/users/resolve-current` | `users.resolveCurrent` | Dashboard, module overview, final results, assign modules | Resolve AD/staging current user to `user_master.user_id` |
 | GET | `/home?user_id=...` | `ieBaselineApi.home.get` | Dashboard, module overview, final results | Load learner profile and assigned modules |
 | GET | `/users` | `ieBaselineApi.users.list` | Assign modules | Load assignable users |
+| GET | `/users/search?q=...` | `ieBaselineApi.users.search` | User Management | Search users by name, WD ID, or email |
+| GET | `/users/{user_id}` | `ieBaselineApi.users.get` | User Management | Load one full user profile |
+| POST | `/users/create` | `ieBaselineApi.users.create` | User Management | Create a `user_master` row |
+| PUT | `/users/{user_id}` | `ieBaselineApi.users.update` | User Management | Update a `user_master` row |
+| DELETE | `/users/{user_id}` | `ieBaselineApi.users.remove` | User Management | Delete a `user_master` row |
+| GET | `/users/{user_id}/delete-preview` | `ieBaselineApi.users.deletePreview` | User Management | Preview related records before delete |
+| GET | `/roles` | `ieBaselineApi.roles.list` | User Management | Load role dropdown options |
 | GET | `/modules` | `ieBaselineApi.modules.list` | Assign modules | Load modules available for assignment |
 | GET | `/users/{user_id}/modules` | `ieBaselineApi.users.modules.get` | Assign modules | Load selected user's module IDs |
 | PUT | `/users/{user_id}/modules` | `ieBaselineApi.users.modules.update` | Assign modules | Replace selected user's module assignments |
@@ -316,6 +365,15 @@ Assign modules
   -> GET /users/:userId/modules
   -> PUT /users/:userId/modules
   -> invalidate related IE Baseline queries
+
+User Management
+  -> GET /roles
+  -> GET /users/search for user and reports_to selectors
+  -> GET /users/:userId before update
+  -> POST /users/create or PUT /users/:userId
+  -> GET /users/:userId/delete-preview before delete
+  -> DELETE /users/:userId after confirmation
+  -> invalidate user search/list queries
 ```
 
 ## Not Wired Yet

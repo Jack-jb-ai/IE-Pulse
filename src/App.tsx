@@ -30,6 +30,7 @@ import IEBaseline from "@/pages/iebaseline/IEBaseline";
 import IEBaselineEdit from "@/pages/iebaseline/IEBaselineEdit";
 import ModuleAdmin from "@/pages/iebaseline/ModuleAdmin";
 import ModuleOverview from "@/pages/iebaseline/ModuleOverview";
+import UserManagement from "@/pages/iebaseline/UserManagement";
 import IPKConfig from "@/pages/ipk/IPKConfig";
 import IPKDashboard from "@/pages/ipk/IPKDashboard";
 import IPKHistory from "@/pages/ipk/IPKHistory";
@@ -199,6 +200,7 @@ function AppShell() {
               <Route path="/iebaseline" element={<IEBaseline />} />
               <Route path="/iebaseline/edit" element={<IEBaselineEdit />} />
               <Route path="/iebaseline/assign" element={<AssignModules />} />
+              <Route path="/iebaseline/users" element={<UserManagement />} />
               <Route path="/iebaseline/developer-docs" element={<DeveloperDocs />} />
               <Route path="/iebaseline/module/:moduleId/results" element={<FinalResults />} />
               <Route path="/iebaseline/module/:moduleId" element={<ModuleOverview />} />

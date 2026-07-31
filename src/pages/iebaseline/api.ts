@@ -38,7 +38,58 @@ export interface IEBaselineUser {
   name: string;
   position: string | null;
   wd_id: number | null;
+  email?: string | null;
+  department?: string | null;
+  role_id?: number | null;
+  role_name?: string | null;
+  reports_to?: number | null;
+  reports_to_name?: string | null;
   assigned_module_count?: number | null;
+}
+
+export interface IEBaselineUserProfile {
+  user_id: number;
+  name: string;
+  position: string | null;
+  wd_id: number | null;
+  email: string | null;
+  department: string | null;
+  role_id: number;
+  role_name?: string | null;
+  reports_to: number | null;
+  reports_to_name?: string | null;
+  assigned_module_count?: number | null;
+}
+
+export interface IEBaselineUserPayload {
+  name: string;
+  position: string | null;
+  wd_id: number | null;
+  reports_to: number | null;
+  email: string | null;
+  department: string | null;
+  role_id: number | null;
+}
+
+export interface IEBaselineUserMutationResponse extends IEBaselineUserProfile {
+  created: boolean;
+}
+
+export interface IEBaselineRole {
+  role_id: number;
+  role_name: string;
+}
+
+export interface IEBaselineDeleteUserResponse {
+  deleted: boolean;
+  user_id: number;
+}
+
+export interface IEBaselineDeletePreview {
+  user_id: number;
+  can_delete: boolean;
+  blocking_reasons: string[];
+  related_counts: Record<string, number>;
 }
 
 export interface IEBaselineResolveCurrentUserRequest {
@@ -329,6 +380,36 @@ export const ieBaselineApi = {
   },
   users: {
     list: () => get<IEBaselineUser[]>('/users'),
+    search: (query?: string, options?: { limit?: number; excludeUserId?: number | null }) => {
+      const params = new URLSearchParams();
+      const trimmed = query?.trim();
+      if (trimmed) params.set('q', trimmed);
+      if (options?.limit) params.set('limit', String(options.limit));
+      if (options?.excludeUserId) params.set('exclude_user_id', String(options.excludeUserId));
+      const qs = params.toString();
+      return get<IEBaselineUserProfile[]>(`/users/search${qs ? `?${qs}` : ''}`);
+    },
+    get: (userId: number) =>
+      get<IEBaselineUserProfile>(`/users/${encodeURIComponent(String(userId))}`),
+    create: (payload: IEBaselineUserPayload) =>
+      sendJson<IEBaselineUserMutationResponse, IEBaselineUserPayload>(
+        'POST',
+        '/users/create',
+        payload,
+      ),
+    update: (userId: number, payload: IEBaselineUserPayload) =>
+      sendJson<IEBaselineUserMutationResponse, IEBaselineUserPayload>(
+        'PUT',
+        `/users/${encodeURIComponent(String(userId))}`,
+        payload,
+      ),
+    remove: (userId: number) =>
+      sendJson<IEBaselineDeleteUserResponse>(
+        'DELETE',
+        `/users/${encodeURIComponent(String(userId))}`,
+      ),
+    deletePreview: (userId: number) =>
+      get<IEBaselineDeletePreview>(`/users/${encodeURIComponent(String(userId))}/delete-preview`),
     resolveCurrent: (payload: IEBaselineResolveCurrentUserRequest) =>
       sendJson<IEBaselineResolveCurrentUserResponse, IEBaselineResolveCurrentUserRequest>(
         'POST',
@@ -342,8 +423,11 @@ export const ieBaselineApi = {
           'PUT',
           `/users/${encodeURIComponent(String(userId))}/modules`,
           payload,
-        ),
+      ),
     },
+  },
+  roles: {
+    list: () => get<IEBaselineRole[]>('/roles'),
   },
   modules: {
     list: () => get<IEBaselineModule[]>('/modules'),

@@ -72,7 +72,7 @@ Authentication: no authentication is currently required.
 ### Example Request
 
 ```http
-GET /api/iebaseline/home?user_id={user_id}
+GET /api/iebaseline/home?user_id=1
 ```
 
 ### Success Response
@@ -222,9 +222,9 @@ Status: `500 Internal Server Error`
 
 ## POST /api/iebaseline/users/resolve-current
 
-Resolves the signed-in AD user to a `user_master` row for IE Baseline learner
-workflows. The operation is idempotent: repeated calls for the same email return
-the same `user_id`.
+Resolves the signed-in AD user to an existing `user_master` row for IE Baseline
+learner workflows. The operation is idempotent: repeated calls for the same
+email return the same `user_id`.
 
 Authentication: no authentication is currently required. The frontend obtains AD
 profile details from the shared current-user lookup and posts the selected
@@ -268,7 +268,7 @@ Status: `200 OK`
   "department": "Industrial Engineering",
   "role_id": 1,
   "reports_to": null,
-  "created": true
+  "created": false
 }
 ```
 
@@ -276,14 +276,13 @@ Status: `200 OK`
 
 * Validate that `email` is present and non-empty.
 * Look up `user_master` by `email`.
-* If the user exists, return the existing `user_id` and update only AD-sourced
-  profile fields: `name`, `position`, `department`, and `updated_at`.
-* Preserve existing `role_id`, `reports_to`, and `wd_id` for returning users.
-* If the user does not exist, insert a new `user_master` row with `role_id = 1`,
-  `reports_to = null`, `wd_id = null`, and the provided `name`, `email`,
-  `position`, and `department`.
-* Use the unique `user_master.email` constraint to make concurrent first-time
-  requests safe.
+* If the user exists, return the existing `user_id` with `created = false` and
+  update only AD-sourced profile fields: `name`, `position`, `department`, and
+  `updated_at`.
+* Preserve existing `role_id`, `reports_to`, `wd_id`, and `email` for returning
+  users.
+* If the user does not exist, return `404 User not found`. New user creation is
+  handled by `POST /api/iebaseline/users/create`.
 
 ### Error Responses
 
@@ -292,6 +291,547 @@ Status: `400 Bad Request`
 ```json
 {
   "detail": "Email is required"
+}
+```
+
+Status: `404 Not Found`
+
+```json
+{
+  "detail": "User not found"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## POST /api/iebaseline/users/create
+
+Creates a `user_master` row for User Management workflows.
+
+Authentication: no authentication is currently required.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Parameters | None |
+| Request body | JSON user profile |
+
+### Example Request
+
+```http
+POST /api/iebaseline/users/create
+Content-Type: application/json
+```
+
+```json
+{
+  "name": "Jack Goh",
+  "position": "IE Engineer II",
+  "wd_id": null,
+  "reports_to": null,
+  "email": "Jack_Goh@jabil.com",
+  "department": "Industrial Engineering",
+  "role_id": 1
+}
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_id": 42,
+  "name": "Jack Goh",
+  "position": "IE Engineer II",
+  "wd_id": null,
+  "email": "Jack_Goh@jabil.com",
+  "department": "Industrial Engineering",
+  "role_id": 1,
+  "reports_to": null,
+  "created": true
+}
+```
+
+### Backend Behavior
+
+* Validate that `name` is present and non-empty.
+* Treat empty optional string fields as `null`.
+* Default missing or null `role_id` to `1`.
+* Validate that `role_id` exists in `role_master`.
+* Validate that non-null `reports_to` exists in `user_master`.
+* Reject duplicate non-null `email`.
+* Reject duplicate non-null `wd_id`.
+* Insert the user with database-managed `created_at` and `updated_at`.
+
+### Error Responses
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Name is required"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid role_id"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid reports_to"
+}
+```
+
+Status: `409 Conflict`
+
+```json
+{
+  "detail": "Email already exists"
+}
+```
+
+Status: `409 Conflict`
+
+```json
+{
+  "detail": "wd_id already exists"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## PUT /api/iebaseline/users/{user_id}
+
+Updates a `user_master` row for User Management workflows.
+
+Authentication: no authentication is currently required.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Path parameter | `user_id`, required integer |
+| Request body | JSON user profile |
+
+### Example Request
+
+```http
+PUT /api/iebaseline/users/42
+Content-Type: application/json
+```
+
+```json
+{
+  "name": "Jack Goh",
+  "position": "IE Engineer III",
+  "wd_id": 12345,
+  "reports_to": 7,
+  "email": "Jack_Goh@jabil.com",
+  "department": "Industrial Engineering",
+  "role_id": 2
+}
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_id": 42,
+  "name": "Jack Goh",
+  "position": "IE Engineer III",
+  "wd_id": 12345,
+  "email": "Jack_Goh@jabil.com",
+  "department": "Industrial Engineering",
+  "role_id": 2,
+  "reports_to": 7,
+  "created": false
+}
+```
+
+### Backend Behavior
+
+* Validate that `user_id` exists.
+* Validate that `name` is present and non-empty.
+* Treat empty optional string fields as `null`.
+* Default missing or null `role_id` to `1`.
+* Validate that `role_id` exists in `role_master`.
+* Validate that non-null `reports_to` exists in `user_master` and is not the
+  same as `user_id`.
+* Reject duplicate non-null `email` owned by another user.
+* Reject duplicate non-null `wd_id` owned by another user.
+* Update database-managed `updated_at`.
+
+### Error Responses
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Name is required"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid role_id"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid reports_to"
+}
+```
+
+Status: `404 Not Found`
+
+```json
+{
+  "detail": "User not found"
+}
+```
+
+Status: `409 Conflict`
+
+```json
+{
+  "detail": "Email already exists"
+}
+```
+
+Status: `409 Conflict`
+
+```json
+{
+  "detail": "wd_id already exists"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## DELETE /api/iebaseline/users/{user_id}
+
+Deletes a `user_master` row for User Management workflows.
+
+Authentication: no authentication is currently required.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Path parameter | `user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+DELETE /api/iebaseline/users/42
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "deleted": true,
+  "user_id": 42
+}
+```
+
+### Backend Behavior
+
+* Validate that `user_id` exists.
+* Delete the user and allow database constraints to cascade or clear related
+  records where configured.
+* Return `409 Conflict` if related records prevent deletion, such as uploaded
+  attachment metadata that references the user.
+
+### Error Responses
+
+Status: `404 Not Found`
+
+```json
+{
+  "detail": "User not found"
+}
+```
+
+Status: `409 Conflict`
+
+```json
+{
+  "detail": "User cannot be deleted because related records exist"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## GET /api/iebaseline/users/search
+
+Searches users for User Management selectors, including `reports_to` dropdowns.
+This endpoint is intended to avoid fetching every user record when the frontend
+only needs a searchable pick list.
+
+Authentication: no authentication is currently required.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Query parameter | `q`, optional string |
+| Query parameter | `limit`, optional integer, defaults to `25` |
+| Query parameter | `exclude_user_id`, optional integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/users/search?q=jack&limit=25&exclude_user_id=42
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+[
+  {
+    "user_id": 7,
+    "name": "Jane Tan",
+    "position": "Manager",
+    "wd_id": 12345,
+    "email": "Jane_Tan@jabil.com",
+    "department": "Industrial Engineering",
+    "role_id": 2,
+    "role_name": "admin",
+    "reports_to": null,
+    "reports_to_name": null,
+    "assigned_module_count": 3
+  }
+]
+```
+
+### Backend Behavior
+
+* Search case-insensitively across `name`, `wd_id::text`, and `email`.
+* Exclude `exclude_user_id` when supplied. This prevents assigning a user as
+  their own manager in Update User.
+* Order by best match, then `name`, then `user_id`.
+* Return at most `limit` rows.
+
+### Error Response
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## GET /api/iebaseline/users/{user_id}
+
+Fetches one full `user_master` profile for User Management update and delete
+workflows.
+
+Authentication: no authentication is currently required.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Path parameter | `user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/users/42
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_id": 42,
+  "name": "Jack Goh",
+  "position": "IE Engineer II",
+  "wd_id": 12345,
+  "email": "Jack_Goh@jabil.com",
+  "department": "Industrial Engineering",
+  "role_id": 1,
+  "role_name": "user",
+  "reports_to": 7,
+  "reports_to_name": "Jane Tan",
+  "assigned_module_count": 3
+}
+```
+
+### Error Responses
+
+Status: `404 Not Found`
+
+```json
+{
+  "detail": "User not found"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## GET /api/iebaseline/roles
+
+Fetches role options for User Management.
+
+Authentication: no authentication is currently required.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Parameters | None |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/roles
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+[
+  { "role_id": 1, "role_name": "user" },
+  { "role_id": 2, "role_name": "admin" },
+  { "role_id": 3, "role_name": "dev" },
+  { "role_id": 4, "role_name": "dev/admin" }
+]
+```
+
+### Error Response
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## GET /api/iebaseline/users/{user_id}/delete-preview
+
+Previews whether a user can be deleted and which related records may block the
+delete.
+
+Authentication: no authentication is currently required.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Path parameter | `user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/users/42/delete-preview
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_id": 42,
+  "can_delete": false,
+  "blocking_reasons": [
+    "User has uploaded attachment metadata"
+  ],
+  "related_counts": {
+    "assigned_modules": 3,
+    "exam_attempts": 2,
+    "uploaded_attachments": 1,
+    "direct_reports": 4
+  }
+}
+```
+
+### Backend Behavior
+
+* Return `can_delete = false` when known related records are expected to make
+  `DELETE /api/iebaseline/users/{user_id}` return `409 Conflict`.
+* Include counts for assignments, attempts, uploaded attachments, and direct
+  reports where available.
+* Treat direct reports as non-blocking if deleting this user only sets their
+  `reports_to` to `null`.
+
+### Error Responses
+
+Status: `404 Not Found`
+
+```json
+{
+  "detail": "User not found"
 }
 ```
 
@@ -718,7 +1258,7 @@ Content-Type: application/json
 Compatibility form:
 
 ```http
-POST /api/iebaseline/modules/3/attempts/start?user_id={user_id}
+POST /api/iebaseline/modules/3/attempts/start?user_id=1
 ```
 
 ### Backend Behavior
@@ -1272,7 +1812,7 @@ The backend now returns attempts in compatible order:
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules/3/attempts?user_id={user_id}
+GET /api/iebaseline/modules/3/attempts?user_id=1
 ```
 
 ### Success Response
@@ -1403,7 +1943,7 @@ Lists attachments for one module.
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules/3/attachments?user_id={user_id}&answer_id=501
+GET /api/iebaseline/modules/3/attachments?user_id=1&answer_id=501
 ```
 
 ### Success Response
@@ -1447,7 +1987,7 @@ Downloads one attachment through the backend.
 ### Example Request
 
 ```http
-GET /api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download?user_id={user_id}
+GET /api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download?user_id=1
 ```
 
 The response body is the file content. The backend sets the download filename
@@ -1471,7 +2011,7 @@ to any module, the backend also removes the metadata row and local file.
 ### Example Request
 
 ```http
-DELETE /api/iebaseline/modules/3/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851?user_id={user_id}
+DELETE /api/iebaseline/modules/3/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851?user_id=1
 ```
 
 ### Success Response

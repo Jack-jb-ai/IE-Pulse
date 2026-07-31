@@ -77,7 +77,7 @@ CREATE TABLE user_master (
     reports_to INTEGER,
     email VARCHAR(254),
     department VARCHAR(50),
-    role_id INTEGER,
+    role_id INTEGER NOT NULL DEFAULT 1,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -89,8 +89,7 @@ CREATE TABLE user_master (
 
     CONSTRAINT fk_user_master_role
         FOREIGN KEY (role_id)
-        REFERENCES role_master(role_id)
-        ON DELETE SET NULL,
+        REFERENCES role_master(role_id),
 
     CONSTRAINT uq_user_master_email
         UNIQUE (email)
@@ -108,7 +107,7 @@ CREATE TABLE user_master (
 | `reports_to` | `INTEGER`      | Nullable, foreign key               | Manager or reporting-line user.                    |
 | `email`      | `VARCHAR(254)` | Unique, nullable                    | User's email address.                              |
 | `department` | `VARCHAR(50)`  | Nullable                            | User's department.                                 |
-| `role_id`    | `INTEGER`      | Nullable, foreign key               | Application role assigned to the user.             |
+| `role_id`    | `INTEGER`      | Not null, default `1`, foreign key  | Application role assigned to the user.             |
 | `created_at` | `TIMESTAMPTZ`  | Not null, default current timestamp | Date and time when the record was created.         |
 | `updated_at` | `TIMESTAMPTZ`  | Not null, default current timestamp | Date and time when the record was last updated.    |
 
@@ -118,7 +117,7 @@ CREATE TABLE user_master (
 * `wd_id` is unique so the same Workday user cannot be registered more than once.
 * `wd_id` may be null when the external employee ID is not yet available.
 * `reports_to` points back to another `user_master.user_id`; deleting the manager sets this value to null.
-* `role_id` points to `role_master.role_id`; deleting a role sets this value to null.
+* `role_id` points to `role_master.role_id` and defaults to the seeded user role `1`.
 * `email` is unique when present, preventing duplicate email addresses.
 
 ---
@@ -180,7 +179,7 @@ ALTER TABLE user_master
     ADD COLUMN reports_to INTEGER,
     ADD COLUMN email VARCHAR(254),
     ADD COLUMN department VARCHAR(50),
-    ADD COLUMN role_id INTEGER;
+    ADD COLUMN role_id INTEGER NOT NULL DEFAULT 1;
 
 ALTER TABLE user_master
     ADD CONSTRAINT fk_user_master_reports_to
@@ -191,8 +190,7 @@ ALTER TABLE user_master
 ALTER TABLE user_master
     ADD CONSTRAINT fk_user_master_role
         FOREIGN KEY (role_id)
-        REFERENCES role_master (role_id)
-        ON DELETE SET NULL;
+        REFERENCES role_master (role_id);
 
 ALTER TABLE user_master
     ADD CONSTRAINT uq_user_master_email UNIQUE (email);
@@ -338,16 +336,12 @@ user_master.role_id
 
 The `role_id` value identifies the application role assigned to the user.
 
-This relationship uses:
-
-```sql
-ON DELETE SET NULL
-```
+This relationship uses the default foreign-key delete behavior.
 
 Behavior:
 
-* If the referenced role is deleted, `role_id` becomes null.
-* The user record remains available even when the role record is removed.
+* Role deletion should be restricted or handled by reassigning users before deletion because `role_id` is required.
+* The user record remains available because assigned roles should not be removed while users reference them.
 
 ---
 
