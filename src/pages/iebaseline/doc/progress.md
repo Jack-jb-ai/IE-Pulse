@@ -1,5 +1,57 @@
 # IE Baseline Progress
 
+## 2026-07-31 - User Management Frontend and Backend Contract
+
+Implemented the IE Baseline User Management frontend and documented the
+backend APIs needed for a smooth create/update/delete workflow.
+
+### Updated
+
+- Added `/iebaseline/users` and the IE Baseline sidebar item `User Management`.
+- Added `UserManagement.tsx` with Create User, Update User, and Delete User
+  tabs.
+- Create and Update forms support `name`, `position`, `wd_id`, `email`,
+  `department`, `role_id`, and `reports_to`.
+- Added searchable user selectors for update/delete and searchable
+  `reports_to` selection using name, WD ID, and email.
+- Update mode excludes the edited user from the `reports_to` manager search.
+- Delete mode loads a delete preview before confirmation and still handles
+  backend `409 Conflict` delete failures.
+- Extended `src/pages/iebaseline/api.ts` with typed wrappers for user search,
+  full user profile lookup, create, update, delete, delete preview, and roles.
+- Updated `/iebaseline/developer-docs` and
+  `src/pages/iebaseline/doc/developer-doc.md` with the User Management route,
+  page behavior, API calls, and data flow.
+- Updated `src/pages/iebaseline/doc/api-reference.md` with the required
+  backend contract for:
+  - `GET /api/iebaseline/users/search`
+  - `GET /api/iebaseline/users/{user_id}`
+  - `GET /api/iebaseline/roles`
+  - `GET /api/iebaseline/users/{user_id}/delete-preview`
+
+### Backend Requirements
+
+- Existing dedicated write APIs remain required:
+  - `POST /api/iebaseline/users/create`
+  - `PUT /api/iebaseline/users/{user_id}`
+  - `DELETE /api/iebaseline/users/{user_id}`
+- Implement server-side user search across `name`, `wd_id::text`, and `email`
+  with optional `limit` and `exclude_user_id`.
+- Implement full profile lookup so Update User can preserve fields that are not
+  returned by the assignment-oriented `GET /users` endpoint.
+- Implement roles lookup from `role_master`; the frontend has seeded fallback
+  labels only for development resilience.
+- Implement delete preview with related counts and blocking reasons so users can
+  understand delete risk before confirmation.
+
+### Verified
+
+- Ran `npm run build:iebaseline`.
+- The sandboxed build hit the known Windows Vite `spawn EPERM` while loading
+  config.
+- The same build passed when rerun with approval for Vite/Node subprocess
+  spawning.
+
 ## 2026-07-31 - Removed Demo User Fallback and Added Staging Override
 
 Removed the unsafe IE Baseline demo-user fallback and added an explicit
