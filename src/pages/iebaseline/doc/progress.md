@@ -1,5 +1,97 @@
 # IE Baseline Progress
 
+## 2026-07-31 - Answer Shell and Attachment Frontend Wiring
+
+Implemented the frontend side of the IE Baseline answer-shell and attachment
+contracts.
+
+### Updated
+
+- Expanded IE Baseline frontend API types for backend-provided answer shells:
+  `answerId`, `isAttached`, `attachmentRequirement`, and
+  `attachmentApprovalRequired`.
+- Preserved backend `answerId` and `isAttached` values after save and clear
+  answer responses.
+- Added defensive exam-modal handling for in-progress questions missing
+  `answer.answerId`; the frontend shows an error and blocks answer controls
+  instead of inventing an ID.
+- Added module attachment API wrappers for list, upload, delete, and download
+  URL creation.
+- Added attachment UI in `ExamModal` for questions where
+  `attachmentRequirement` is `required` or `optional`.
+- Attachment upload now uses the current question's existing
+  `answer.answerId` and operates independently from the Next Question button.
+- Attachment delete refreshes the attachment list and attempt questions so
+  backend-maintained `isAttached` remains authoritative.
+- Finish Checklist now handles structured backend validation errors such as
+  `REQUIRED_ATTACHMENTS_MISSING` and lets the learner navigate back to the
+  returned questions.
+
+### Verified
+
+- Ran `npm run build:iebaseline`.
+- The sandboxed build hit the known Windows Vite `spawn EPERM` while loading
+  config.
+- The same build passed when rerun with approval for Vite/Node subprocess
+  spawning.
+
+## 2026-07-31 - Current User Resolution Contract and Frontend Wiring
+
+Replaced the learner-facing IE Baseline demo-user flow with a runtime
+current-user resolution flow.
+
+### Updated
+
+- Added frontend support for resolving the signed-in AD user into an IE Baseline
+  `user_master.user_id`.
+- Added `POST /api/iebaseline/users/resolve-current` to
+  `src/pages/iebaseline/doc/api-reference.md` as the backend implementation
+  contract.
+- Added `useIEBaselineCurrentUser`, which:
+  - reads shared AD profile data from `useCurrentUser()`,
+  - requires `user.email` as the lookup/create key,
+  - calls `ieBaselineApi.users.resolveCurrent(...)`,
+  - exposes the runtime `ieBaselineUserId`.
+- Updated learner flows to use the resolved runtime user ID instead of the demo
+  user ID:
+  - learner home dashboard,
+  - module overview,
+  - final results,
+  - exam start/resume/review history,
+  - attachment list/upload/delete/download.
+- Updated Assign Modules so `assignee_id` uses the resolved current IE Baseline
+  user ID.
+
+### Backend Requirements
+
+- Implement `POST /api/iebaseline/users/resolve-current`.
+- Look up `user_master` by `email`.
+- If present, return the existing `user_id` and update only AD-sourced profile
+  fields: `name`, `position`, `department`, and `updated_at`.
+- If absent, insert a new user with:
+  - `role_id = 1`,
+  - `reports_to = null`,
+  - `wd_id = null`,
+  - AD-provided `name`, `email`, `position`, and `department`.
+- Preserve existing `role_id`, `reports_to`, and `wd_id` for returning users.
+- Make first-time user creation idempotent with the unique
+  `user_master.email` constraint.
+
+### Failure Handling
+
+- IE Baseline waits for AD current-user data before learner API calls.
+- If AD returns no email, learner flows are blocked with a clear error because
+  email is the authoritative key.
+- If current-user resolution fails, learner API calls are blocked and the error
+  is shown in the existing IE Baseline error surfaces.
+
+### Verified
+
+- Ran `npm run build:iebaseline`.
+- The build passed when run with approval for Vite/Node subprocess spawning.
+- Confirmed learner pages and the exam modal no longer reference
+  `IEBASELINE_DEMO_USER_ID` directly.
+
 ## 2026-07-24 - Home Page Latest Attempt Progress Contract
 
 Updated the learner home page contract so assignment progress can reflect the
