@@ -19,6 +19,41 @@ In development, Vite rewrites that prefix to:
 The frontend resolves the active learner through `useIEBaselineCurrentUser`.
 Normal runs use AD email plus `POST /users/resolve-current`; staging can set
 `VITE_IEBASELINE_USER_ID_OVERRIDE` to use a temporary DB user ID explicitly.
+There is no hardcoded fallback learner ID.
+
+## Current User Resolution
+
+File: `src/pages/iebaseline/useIEBaselineCurrentUser.ts`
+
+Normal behavior:
+
+* Reads AD profile data from `useCurrentUser()`.
+* Requires `user.email` as the unique lookup/create key.
+* Calls `POST /users/resolve-current` with `name`, `email`, `position`, and
+  `department`.
+* Returns the backend `user_master.user_id` as `ieBaselineUserId`.
+* Blocks learner API calls until `ieBaselineUserId` is available.
+
+Staging override behavior:
+
+* If `VITE_IEBASELINE_USER_ID_OVERRIDE` is set to a valid positive integer, the
+  hook returns that value as `ieBaselineUserId`.
+* The override skips `POST /users/resolve-current`.
+* The override does not require AD email and suppresses current-user lookup
+  errors.
+* Use this only for temporary staging users already present in `user_master`.
+
+CLI examples:
+
+```powershell
+$env:VITE_IEBASELINE_USER_ID_OVERRIDE='4'
+npm run dev
+```
+
+```powershell
+$env:VITE_IEBASELINE_USER_ID_OVERRIDE='4'
+npm run build:iebaseline
+```
 
 ## Route Map
 
@@ -41,6 +76,8 @@ File: `src/pages/iebaseline/IEBaseline.tsx`
 Features:
 
 * Loads learner profile and assignments from the home API.
+* Resolves the active learner through `useIEBaselineCurrentUser` before calling
+  learner-specific APIs.
 * Shows assigned modules with progress, status, owner, assignee, assigned date,
   updated date, and question count.
 * Expands each assigned module row for module details.
@@ -48,6 +85,7 @@ Features:
 
 API calls:
 
+* `POST /users/resolve-current`
 * `GET /home?user_id={user_id}`
 
 Actions and triggers:
@@ -65,6 +103,7 @@ File: `src/pages/iebaseline/ModuleOverview.tsx`
 Features:
 
 * Reads `moduleId` from the route.
+* Resolves the active learner through `useIEBaselineCurrentUser`.
 * Loads home assignments and finds the matching module assignment.
 * Shows module metadata, progress, status, question count, owner, assignee, and
   dates.
@@ -73,6 +112,7 @@ Features:
 
 API calls:
 
+* `POST /users/resolve-current`
 * `GET /home?user_id={user_id}`
 * Delegates exam behavior to `components/ExamModal.tsx`.
 
@@ -93,10 +133,13 @@ File: `src/pages/iebaseline/components/ExamModal.tsx`
 Features:
 
 * Starts or resumes the active module attempt.
+* Uses the resolved `userId` passed from `ModuleOverview`.
 * Loads attempt history for review mode.
 * Loads questions and saved answers for the active attempt.
 * Saves answer selections.
 * Clears answers when the selected answer is removed.
+* Lists, uploads, removes, and downloads answer attachments for optional or
+  required attachment questions.
 * Submits the attempt and navigates to final results.
 * Supports review-only display of a completed/submitted attempt.
 
@@ -107,6 +150,10 @@ API calls:
 * `GET /attempts/{attempt_id}/questions`
 * `PUT /attempts/{attempt_id}/questions/{question_id}/answer`
 * `DELETE /attempts/{attempt_id}/questions/{question_id}/answer`
+* `GET /modules/{module_id}/attachments?user_id={user_id}&answer_id={answer_id}`
+* `POST /modules/{module_id}/attachments`
+* `DELETE /modules/{module_id}/attachments/{attachment_unq_id}?user_id={user_id}`
+* `GET /attachments/{attachment_unq_id}/download?user_id={user_id}`
 * `POST /attempts/{attempt_id}/submit`
 
 Actions and triggers:
@@ -116,6 +163,9 @@ Actions and triggers:
 | Answer option select | User is taking the checklist | Updates selected answer local state | No immediate API call until save/clear logic runs |
 | Save/change answer | User selects a non-empty answer | Persists answer and updates cached progress | `PUT /attempts/{attempt_id}/questions/{question_id}/answer` |
 | Clear answer | Current selected answer is cleared | Removes the saved answer and updates cached progress | `DELETE /attempts/{attempt_id}/questions/{question_id}/answer` |
+| Upload attachment | Question has an optional or required attachment section and an `answerId` exists | Uploads evidence and refreshes attachment/question state | `POST /modules/{module_id}/attachments` |
+| Remove attachment | Attachment exists and the attempt is editable | Deletes evidence and refreshes attachment/question state | `DELETE /modules/{module_id}/attachments/{attachment_unq_id}` |
+| Download attachment | Attachment exists | Opens backend download URL using the resolved `user_id` | `GET /attachments/{attachment_unq_id}/download` |
 | Finish / Submit checklist | User submits the checklist | Submits attempt, invalidates related queries, routes to final results | `POST /attempts/{attempt_id}/submit` |
 | Close modal | Modal controls are used | Closes the modal and returns to module overview | No API call |
 
@@ -126,6 +176,7 @@ File: `src/pages/iebaseline/FinalResults.tsx`
 Features:
 
 * Reads `moduleId` from the route.
+* Resolves the active learner through `useIEBaselineCurrentUser`.
 * Loads the learner home data for module/user context.
 * Loads attempt history and selects the latest submitted or completed attempt.
 * Can use submit result passed through navigation state as an immediate fallback.
@@ -134,6 +185,7 @@ Features:
 
 API calls:
 
+* `POST /users/resolve-current`
 * `GET /home?user_id={user_id}`
 * `GET /modules/{module_id}/attempts?user_id={user_id}`
 
@@ -149,6 +201,7 @@ File: `src/pages/iebaseline/AssignModules.tsx`
 
 Features:
 
+* Resolves the current IE Baseline user for `assignee_id`.
 * Loads all assignable users.
 * Loads all modules available for assignment.
 * Loads selected user's assigned module IDs.
@@ -158,6 +211,7 @@ Features:
 
 API calls:
 
+* `POST /users/resolve-current`
 * `GET /users`
 * `GET /modules`
 * `GET /users/{user_id}/modules`
@@ -207,6 +261,7 @@ Actions and triggers:
 
 | Method | Frontend path | Wrapper | Used by | Purpose |
 | --- | --- | --- | --- | --- |
+| POST | `/users/resolve-current` | `users.resolveCurrent` | Dashboard, module overview, final results, assign modules | Resolve AD/staging current user to `user_master.user_id` |
 | GET | `/home?user_id=...` | `ieBaselineApi.home.get` | Dashboard, module overview, final results | Load learner profile and assigned modules |
 | GET | `/users` | `ieBaselineApi.users.list` | Assign modules | Load assignable users |
 | GET | `/modules` | `ieBaselineApi.modules.list` | Assign modules | Load modules available for assignment |
@@ -218,32 +273,44 @@ Actions and triggers:
 | GET | `/attempts/{attempt_id}/questions` | `ieBaselineApi.attempts.questions.get` | Exam modal | Load attempt questions and saved answers |
 | PUT | `/attempts/{attempt_id}/questions/{question_id}/answer` | `ieBaselineApi.attempts.questions.saveAnswer` | Exam modal | Save selected answer |
 | DELETE | `/attempts/{attempt_id}/questions/{question_id}/answer` | `ieBaselineApi.attempts.questions.clearAnswer` | Exam modal | Clear selected answer |
+| GET | `/modules/{module_id}/attachments?user_id=...&answer_id=...` | `ieBaselineApi.modules.attachments.list` | Exam modal | List evidence files for one answer |
+| POST | `/modules/{module_id}/attachments` | `ieBaselineApi.modules.attachments.upload` | Exam modal | Upload evidence and set `uploadedBy` |
+| DELETE | `/modules/{module_id}/attachments/{attachment_unq_id}?user_id=...` | `ieBaselineApi.modules.attachments.remove` | Exam modal | Remove evidence for one answer |
+| GET | `/attachments/{attachment_unq_id}/download?user_id=...` | `ieBaselineApi.modules.attachments.downloadUrl` | Exam modal | Build attachment download URL |
 | POST | `/attempts/{attempt_id}/submit` | `ieBaselineApi.attempts.submit` | Exam modal | Submit and score attempt |
 
 ## Data Flow
 
 ```text
 Learner dashboard
+  -> useIEBaselineCurrentUser
+  -> POST /users/resolve-current unless staging override is set
   -> GET /home
   -> module row opens /iebaseline/module/:moduleId
 
 Module overview
+  -> useIEBaselineCurrentUser
   -> GET /home
   -> Start/Review/Retake opens ExamModal
 
 ExamModal
+  -> receives resolved userId from ModuleOverview
   -> POST /modules/:moduleId/attempts/start
   -> GET /attempts/:attemptId/questions
+  -> GET /modules/:moduleId/attachments when needed
+  -> POST or DELETE attachments when needed
   -> PUT or DELETE answer
   -> POST /attempts/:attemptId/submit
   -> navigate /iebaseline/module/:moduleId/results
 
 Final results
+  -> useIEBaselineCurrentUser
   -> GET /home
   -> GET /modules/:moduleId/attempts
   -> display latest submitted/completed attempt
 
 Assign modules
+  -> useIEBaselineCurrentUser for assignee_id
   -> GET /users
   -> GET /modules
   -> GET /users/:userId/modules
@@ -255,9 +322,6 @@ Assign modules
 
 These backend or documented capabilities are not active frontend behavior yet:
 
-* Attachment upload/list/download/delete APIs from `api-reference.md`.
-* Required attachment UI and validation behavior described in
-  `attachment_feature.md`.
 * Legacy module-name checklist endpoint:
   `GET /api/iebaseline/modules/{moduleName}/questions`.
 * Admin create/edit/save module APIs. The current edit/admin pages still use

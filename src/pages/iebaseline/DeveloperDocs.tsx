@@ -16,6 +16,14 @@ const routes = [
   { path: '/iebaseline/developer-docs', page: 'DeveloperDocs.tsx', purpose: 'In-app developer reference' },
 ];
 
+const identityFlow = [
+  'useIEBaselineCurrentUser reads AD profile data through useCurrentUser.',
+  'Normal runs require email and call POST /users/resolve-current to obtain user_master.user_id.',
+  'VITE_IEBASELINE_USER_ID_OVERRIDE can explicitly supply a temporary staging user ID and skip AD email resolution.',
+  'Learner pages block their user-scoped API calls until ieBaselineUserId is available.',
+  'There is no hardcoded demo-user fallback.',
+];
+
 const pages = [
   {
     name: 'Learner Dashboard',
@@ -24,12 +32,13 @@ const pages = [
     owner: 'Learner home and assignment progress display',
     source: 'Backend home API for visible assignment rows; legacy MODULES remains exported for old admin pages.',
     features: [
+      'Resolves the active learner through useIEBaselineCurrentUser before learner-specific API calls.',
       'Loads the resolved learner profile and assigned module list.',
       'Displays progress, derived status, owner, assigned by, assigned date, updated date, and question count.',
       'Expands a module row to show details and actions.',
       'Links each assignment to the module overview route.',
     ],
-    apis: ['GET /home?user_id=...'],
+    apis: ['POST /users/resolve-current', 'GET /home?user_id=...'],
     actions: [
       {
         trigger: 'Module name link',
@@ -58,12 +67,13 @@ const pages = [
     owner: 'Single assigned module landing page',
     source: 'Backend home API; the route moduleId is matched against assignment.module_id.',
     features: [
+      'Resolves the active learner through useIEBaselineCurrentUser.',
       'Reads moduleId from the URL and finds the matching assignment.',
       'Shows module name, description, progress, status, metadata, assignee, and owner.',
       'Starts the checklist for incomplete modules.',
       'For completed modules, exposes review, retake, and result actions.',
     ],
-    apis: ['GET /home?user_id=...'],
+    apis: ['POST /users/resolve-current', 'GET /home?user_id=...'],
     actions: [
       {
         trigger: 'Start Module',
@@ -105,8 +115,10 @@ const pages = [
     source: 'Attempt APIs and attempt question payloads from the IE Baseline backend.',
     features: [
       'Starts or resumes an attempt for the selected module.',
+      'Uses the resolved userId passed from ModuleOverview.',
       'Loads attempt questions with saved answer state.',
       'Saves selected answers and clears answers when needed.',
+      'Lists, uploads, deletes, and downloads answer attachments when questions require or allow evidence.',
       'Submits the attempt, invalidates related query caches, and navigates to final results.',
       'Supports review-only mode for completed/submitted attempts.',
     ],
@@ -116,6 +128,10 @@ const pages = [
       'GET /attempts/{attempt_id}/questions',
       'PUT /attempts/{attempt_id}/questions/{question_id}/answer',
       'DELETE /attempts/{attempt_id}/questions/{question_id}/answer',
+      'GET /modules/{module_id}/attachments?user_id=...',
+      'POST /modules/{module_id}/attachments',
+      'DELETE /modules/{module_id}/attachments/{attachment_unq_id}',
+      'GET /attachments/{attachment_unq_id}/download?user_id=...',
       'POST /attempts/{attempt_id}/submit',
     ],
     actions: [
@@ -138,6 +154,18 @@ const pages = [
         api: 'DELETE /attempts/{attempt_id}/questions/{question_id}/answer.',
       },
       {
+        trigger: 'Upload attachment',
+        condition: 'Question has an optional or required attachment section and a backend answerId.',
+        result: 'Uploads evidence and refreshes attachment/question state.',
+        api: 'POST /modules/{module_id}/attachments.',
+      },
+      {
+        trigger: 'Remove attachment',
+        condition: 'Attachment exists and the attempt is editable.',
+        result: 'Deletes evidence and refreshes attachment/question state.',
+        api: 'DELETE /modules/{module_id}/attachments/{attachment_unq_id}.',
+      },
+      {
         trigger: 'Finish / Submit checklist',
         condition: 'Available from the exam flow.',
         result: 'Submits the attempt, invalidates related queries, then routes to final results.',
@@ -158,13 +186,14 @@ const pages = [
     owner: 'Submitted checklist outcome display',
     source: 'Home API for learner/module context and module attempt history API for stored attempts.',
     features: [
+      'Resolves the active learner through useIEBaselineCurrentUser.',
       'Reads moduleId from the URL.',
       'Loads learner context and module attempt history.',
       'Selects the latest submitted or completed attempt.',
       'Uses submit navigation state as an immediate fallback after finishing a checklist.',
       'Displays result status, score, attempt number, answered count, learner details, and completion date.',
     ],
-    apis: ['GET /home?user_id=...', 'GET /modules/{module_id}/attempts?user_id=...'],
+    apis: ['POST /users/resolve-current', 'GET /home?user_id=...', 'GET /modules/{module_id}/attempts?user_id=...'],
     actions: [
       {
         trigger: 'Return to Module',
@@ -181,13 +210,14 @@ const pages = [
     owner: 'User-to-module assignment management',
     source: 'Users, modules, selected user module IDs, and update assignment API.',
     features: [
+      'Resolves the current IE Baseline user for assignee_id.',
       'Loads all assignable users and available modules.',
       'Loads selected user assignments after choosing a user.',
       'Tracks draft add/remove changes locally.',
       'Applies assignment changes with confirmation.',
       'Invalidates users, selected user modules, and home queries after save.',
     ],
-    apis: ['GET /users', 'GET /modules', 'GET /users/{user_id}/modules', 'PUT /users/{user_id}/modules'],
+    apis: ['POST /users/resolve-current', 'GET /users', 'GET /modules', 'GET /users/{user_id}/modules', 'PUT /users/{user_id}/modules'],
     actions: [
       {
         trigger: 'Manage user',
@@ -269,6 +299,7 @@ const pages = [
 ];
 
 const apiCalls = [
+  { method: 'POST', path: '/users/resolve-current', wrapper: 'users.resolveCurrent', usedBy: 'Dashboard, Module Overview, Final Results, Assign Modules', purpose: 'Resolve AD or staging current user to user_master.user_id' },
   { method: 'GET', path: '/home?user_id=...', wrapper: 'home.get', usedBy: 'Dashboard, Module Overview, Final Results', purpose: 'Load learner profile and assigned modules' },
   { method: 'GET', path: '/users', wrapper: 'users.list', usedBy: 'Assign Modules', purpose: 'Load assignable users' },
   { method: 'GET', path: '/modules', wrapper: 'modules.list', usedBy: 'Assign Modules', purpose: 'Load modules available for assignment' },
@@ -280,10 +311,15 @@ const apiCalls = [
   { method: 'GET', path: '/attempts/{attempt_id}/questions', wrapper: 'attempts.questions.get', usedBy: 'Exam Modal', purpose: 'Load attempt questions and saved answers' },
   { method: 'PUT', path: '/attempts/{attempt_id}/questions/{question_id}/answer', wrapper: 'attempts.questions.saveAnswer', usedBy: 'Exam Modal', purpose: 'Save selected answer' },
   { method: 'DELETE', path: '/attempts/{attempt_id}/questions/{question_id}/answer', wrapper: 'attempts.questions.clearAnswer', usedBy: 'Exam Modal', purpose: 'Clear selected answer' },
+  { method: 'GET', path: '/modules/{module_id}/attachments?user_id=...&answer_id=...', wrapper: 'modules.attachments.list', usedBy: 'Exam Modal', purpose: 'List evidence files for one answer' },
+  { method: 'POST', path: '/modules/{module_id}/attachments', wrapper: 'modules.attachments.upload', usedBy: 'Exam Modal', purpose: 'Upload evidence and set uploadedBy' },
+  { method: 'DELETE', path: '/modules/{module_id}/attachments/{attachment_unq_id}?user_id=...', wrapper: 'modules.attachments.remove', usedBy: 'Exam Modal', purpose: 'Remove evidence for one answer' },
+  { method: 'GET', path: '/attachments/{attachment_unq_id}/download?user_id=...', wrapper: 'modules.attachments.downloadUrl', usedBy: 'Exam Modal', purpose: 'Build attachment download URL' },
   { method: 'POST', path: '/attempts/{attempt_id}/submit', wrapper: 'attempts.submit', usedBy: 'Exam Modal', purpose: 'Submit and score attempt' },
 ];
 
 const flow = [
+  'Current-user resolution obtains ieBaselineUserId before learner-scoped API calls.',
   'Dashboard loads GET /home and links to module overview.',
   'Module overview loads GET /home, finds the matching assignment, and opens ExamModal.',
   'ExamModal starts/resumes an attempt, loads questions, saves or clears answers, then submits.',
@@ -350,7 +386,7 @@ export default function DeveloperDocs() {
             </p>
           </div>
           <div className="rounded-md border border-border/60 bg-background/70 px-4 py-3 text-xs text-muted-foreground">
-            Markdown source: <span className="font-mono text-foreground">src/pages/iebaseline/doc/developer-live-doc.md</span>
+            Markdown source: <span className="font-mono text-foreground">src/pages/iebaseline/doc/developer-doc.md</span>
           </div>
         </div>
 
@@ -509,6 +545,19 @@ export default function DeveloperDocs() {
 
           <TabsContent value="flow" className="space-y-4">
             <SectionTitle icon={GitBranch} title="Data Flow" description="The main frontend flows from dashboard through assignment and exam completion." />
+            <Card className="border-border/60 bg-background/70 p-5">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Current User Resolution</h3>
+              <div className="grid gap-2">
+                {identityFlow.map((step, index) => (
+                  <div key={step} className="flex items-start gap-3 rounded-md border border-border/50 bg-muted/20 p-3">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-primary/20 bg-primary/10 text-xs font-semibold text-primary">
+                      {index + 1}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{step}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
             <div className="grid gap-3">
               {flow.map((step, index) => (
                 <Card key={step} className="flex items-start gap-4 border-border/60 bg-background/70 p-4">
