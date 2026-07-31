@@ -19,15 +19,20 @@ import { BookOpen, RotateCcw, Save, Search, Trash2, UserCheck, Users } from 'luc
 import { useEffect, useMemo, useState } from 'react';
 import {
   ieBaselineApi,
-  IEBASELINE_DEMO_USER_ID,
   type IEBaselineModule,
   type IEBaselineUser,
 } from './api';
+import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
 export default function AssignModules() {
   const queryClient = useQueryClient();
   const [selectedUser, setSelectedUser] = useState<IEBaselineUser | null>(null);
   const [draftModuleIds, setDraftModuleIds] = useState<Set<number>>(new Set());
+  const {
+    ieBaselineUserId,
+    isLoading: isResolvingCurrentUser,
+    error: currentUserResolveError,
+  } = useIEBaselineCurrentUser();
 
   const usersQuery = useQuery({
     queryKey: ['iebaseline', 'users'],
@@ -70,11 +75,13 @@ export default function AssignModules() {
   const assignedCount = draftModuleIds.size;
 
   const updateModulesMutation = useMutation({
-    mutationFn: () =>
-      ieBaselineApi.users.modules.update(selectedUser!.user_id, {
+    mutationFn: () => {
+      if (!ieBaselineUserId) throw new Error('Current IE Baseline user is not resolved yet.');
+      return ieBaselineApi.users.modules.update(selectedUser!.user_id, {
         module_ids: Array.from(draftModuleIds).sort((a, b) => a - b),
-        assignee_id: IEBASELINE_DEMO_USER_ID,
-      }),
+        assignee_id: ieBaselineUserId,
+      });
+    },
     onSuccess: async (data) => {
       setDraftModuleIds(new Set(data.assigned_module_ids));
       await Promise.all([
@@ -148,9 +155,9 @@ export default function AssignModules() {
 
       <UserList
         users={usersQuery.data ?? []}
-        isLoading={usersQuery.isLoading}
-        isError={usersQuery.isError}
-        error={usersQuery.error}
+        isLoading={usersQuery.isLoading || isResolvingCurrentUser}
+        isError={usersQuery.isError || Boolean(currentUserResolveError)}
+        error={currentUserResolveError ?? usersQuery.error}
         selectedUserId={selectedUser?.user_id}
         onManage={manageUser}
       />
@@ -165,6 +172,7 @@ export default function AssignModules() {
           isError={modulesQuery.isError || userModulesQuery.isError}
           error={modulesQuery.error ?? userModulesQuery.error}
           isSaving={updateModulesMutation.isPending}
+          canApply={Boolean(ieBaselineUserId)}
           modules={modulesQuery.data ?? []}
           selectedUser={userModulesQuery.data?.user ?? selectedUser}
           onApply={() => updateModulesMutation.mutate()}
@@ -267,6 +275,7 @@ interface ModuleManagerProps {
   isError: boolean;
   error: unknown;
   isSaving: boolean;
+  canApply: boolean;
   modules: IEBaselineModule[];
   selectedUser: {
     user_id: number;
@@ -289,6 +298,7 @@ function ModuleManager({
   isError,
   error,
   isSaving,
+  canApply,
   modules,
   selectedUser,
   onApply,
@@ -326,7 +336,7 @@ function ModuleManager({
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button size="sm" className="gap-2" disabled={!hasChanges || isSaving || isLoading || isError}>
+              <Button size="sm" className="gap-2" disabled={!hasChanges || isSaving || isLoading || isError || !canApply}>
                 <Save className="w-4 h-4" />
                 Apply changes
               </Button>
@@ -355,7 +365,7 @@ function ModuleManager({
               </div>
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={onApply} disabled={isSaving}>
+                <AlertDialogAction onClick={onApply} disabled={isSaving || !canApply}>
                   {isSaving ? 'Applying...' : 'Confirm apply'}
                 </AlertDialogAction>
               </AlertDialogFooter>

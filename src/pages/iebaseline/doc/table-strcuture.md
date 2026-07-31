@@ -23,7 +23,10 @@ The database uses the following structures:
 
 * `user_master`
 
-  * Stores user information.
+  * Stores user information, organization fields, manager relationships, and role assignment.
+* `role_master`
+
+  * Stores the available application roles.
 * `user_checklist_status`
 
   * Stores each user's checklist status for a module.
@@ -71,9 +74,26 @@ CREATE TABLE user_master (
     name VARCHAR(250) NOT NULL,
     position VARCHAR(50),
     wd_id INTEGER UNIQUE,
+    reports_to INTEGER,
+    email VARCHAR(254),
+    department VARCHAR(50),
+    role_id INTEGER,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_user_master_reports_to
+        FOREIGN KEY (reports_to)
+        REFERENCES user_master(user_id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_user_master_role
+        FOREIGN KEY (role_id)
+        REFERENCES role_master(role_id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT uq_user_master_email
+        UNIQUE (email)
 );
 ```
 
@@ -85,6 +105,10 @@ CREATE TABLE user_master (
 | `name`       | `VARCHAR(250)` | Not null                            | User's full name.                                  |
 | `position`   | `VARCHAR(50)`  | Nullable                            | User's job title or position.                      |
 | `wd_id`      | `INTEGER`      | Unique, nullable                    | User's Workday ID or external employee identifier. |
+| `reports_to` | `INTEGER`      | Nullable, foreign key               | Manager or reporting-line user.                    |
+| `email`      | `VARCHAR(254)` | Unique, nullable                    | User's email address.                              |
+| `department` | `VARCHAR(50)`  | Nullable                            | User's department.                                 |
+| `role_id`    | `INTEGER`      | Nullable, foreign key               | Application role assigned to the user.             |
 | `created_at` | `TIMESTAMPTZ`  | Not null, default current timestamp | Date and time when the record was created.         |
 | `updated_at` | `TIMESTAMPTZ`  | Not null, default current timestamp | Date and time when the record was last updated.    |
 
@@ -93,6 +117,92 @@ CREATE TABLE user_master (
 * `user_id` is the internal database identifier.
 * `wd_id` is unique so the same Workday user cannot be registered more than once.
 * `wd_id` may be null when the external employee ID is not yet available.
+* `reports_to` points back to another `user_master.user_id`; deleting the manager sets this value to null.
+* `role_id` points to `role_master.role_id`; deleting a role sets this value to null.
+* `email` is unique when present, preventing duplicate email addresses.
+
+---
+
+## Table: `role_master`
+
+The `role_master` table stores application role names.
+
+```sql
+CREATE TABLE role_master (
+    role_id   INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    role_name VARCHAR(50) NOT NULL UNIQUE
+);
+```
+
+Seed values:
+
+```sql
+INSERT INTO role_master (role_name)
+VALUES
+    ('user'),
+    ('admin'),
+    ('dev'),
+    ('dev/admin');
+```
+
+### Columns
+
+| Column      | Data Type     | Constraints      | Description                          |
+| ----------- | ------------- | ---------------- | ------------------------------------ |
+| `role_id`   | `INTEGER`     | Primary key      | Internal unique identifier for role. |
+| `role_name` | `VARCHAR(50)` | Not null, unique | Application role name.               |
+
+### Notes
+
+* `role_name` is unique so the same role label cannot be inserted twice.
+* User records reference roles through `user_master.role_id`.
+
+---
+
+## User Role and Reporting Migration SQL
+
+Migration file: `migrations/20260731_user_roles_and_reporting.sql`
+
+```sql
+CREATE TABLE role_master (
+    role_id   INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    role_name VARCHAR(50) NOT NULL UNIQUE
+);
+
+INSERT INTO role_master (role_name)
+VALUES
+    ('user'),
+    ('admin'),
+    ('dev'),
+    ('dev/admin');
+
+ALTER TABLE user_master
+    ADD COLUMN reports_to INTEGER,
+    ADD COLUMN email VARCHAR(254),
+    ADD COLUMN department VARCHAR(50),
+    ADD COLUMN role_id INTEGER;
+
+ALTER TABLE user_master
+    ADD CONSTRAINT fk_user_master_reports_to
+        FOREIGN KEY (reports_to)
+        REFERENCES user_master (user_id)
+        ON DELETE SET NULL;
+
+ALTER TABLE user_master
+    ADD CONSTRAINT fk_user_master_role
+        FOREIGN KEY (role_id)
+        REFERENCES role_master (role_id)
+        ON DELETE SET NULL;
+
+ALTER TABLE user_master
+    ADD CONSTRAINT uq_user_master_email UNIQUE (email);
+
+CREATE INDEX idx_user_master_reports_to
+    ON user_master (reports_to);
+
+CREATE INDEX idx_user_master_role_id
+    ON user_master (role_id);
+```
 
 ---
 
@@ -197,6 +307,50 @@ Behavior:
 
 ---
 
+### User Reporting Line
+
+```text
+user_master.reports_to
+    -> user_master.user_id
+```
+
+The `reports_to` value identifies the user's manager or reporting-line owner.
+
+This relationship uses:
+
+```sql
+ON DELETE SET NULL
+```
+
+Behavior:
+
+* If the referenced manager is deleted, `reports_to` becomes null.
+* The user record remains available even when the manager record is removed.
+
+---
+
+### User Role
+
+```text
+user_master.role_id
+    -> role_master.role_id
+```
+
+The `role_id` value identifies the application role assigned to the user.
+
+This relationship uses:
+
+```sql
+ON DELETE SET NULL
+```
+
+Behavior:
+
+* If the referenced role is deleted, `role_id` becomes null.
+* The user record remains available even when the role record is removed.
+
+---
+
 ### Checklist Assignee
 
 ```text
@@ -232,6 +386,15 @@ CONSTRAINT uq_user_module
 
 A user may only have one checklist status record for each module.
 
+The following constraint prevents duplicate user email addresses:
+
+```sql
+CONSTRAINT uq_user_master_email
+    UNIQUE (email)
+```
+
+PostgreSQL allows multiple null values in a unique column, so users without an email address can still be stored.
+
 Valid example:
 
 ```text
@@ -260,8 +423,23 @@ user_id PK
 name
 position
 wd_id
+reports_to FK
+email
+department
+role_id FK
 created_at
 updated_at
+     ^
+     | reports_to
+     |
+     + self reference
+     |
+     | role_id
+     v
+role_master
+-----------
+role_id PK
+role_name
      |
      | user_id
      | assignee_id
@@ -298,8 +476,9 @@ When creating a new module assignment:
 1. Confirm that the `user_id` exists in `user_master`.
 2. Confirm that the `module_id` exists in `module_master`.
 3. Optionally provide an `assignee_id`.
-4. Create the checklist status record.
-5. Use `Incomplete` as the default status when no status is provided.
+4. Optionally provide `reports_to`, `email`, `department`, and `role_id` on the user profile.
+5. Create the checklist status record.
+6. Use `Incomplete` as the default status when no status is provided.
 
 Example:
 
@@ -1432,7 +1611,8 @@ Responsibilities:
 
 * Validate attempt ownership.
 * Validate all answer shells have `is_answered = true`.
-* Validate required attachments have `is_attached = true`.
+* Validate required attachments have `is_attached = true`, except when the saved
+  `selected_answer` leading label is `NA` or `N/A`.
 * Calculate the result.
 * Save question scores.
 * Save the final attempt score.

@@ -12,7 +12,6 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import {
-  IEBASELINE_DEMO_USER_ID,
   IEBaselineApiError,
   ieBaselineApi,
   type IEBaselineAttachment,
@@ -26,11 +25,12 @@ import {
 interface ExamModalProps {
   moduleId: number;
   moduleName: string;
+  userId: number;
   onClose: () => void;
   reviewOnly?: boolean;
 }
 
-export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = false }: ExamModalProps) {
+export default function ExamModal({ moduleId, moduleName, userId, onClose, reviewOnly = false }: ExamModalProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -48,8 +48,8 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     isError: isStartError,
     error: startError,
   } = useQuery({
-    queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active'],
-    queryFn: () => ieBaselineApi.modules.attempts.start(moduleId),
+    queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active', userId],
+    queryFn: () => ieBaselineApi.modules.attempts.start(moduleId, userId),
     enabled: !reviewOnly,
     refetchOnWindowFocus: false,
     retry: false,
@@ -61,8 +61,8 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     isError: isHistoryError,
     error: historyError,
   } = useQuery({
-    queryKey: ['iebaseline', 'modules', moduleId, 'attempts'],
-    queryFn: () => ieBaselineApi.modules.attempts.list(moduleId),
+    queryKey: ['iebaseline', 'modules', moduleId, 'attempts', userId],
+    queryFn: () => ieBaselineApi.modules.attempts.list(moduleId, userId),
     enabled: reviewOnly,
     refetchOnWindowFocus: false,
     retry: false,
@@ -159,9 +159,9 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
       });
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active'], refetchType: 'none' }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active', userId], refetchType: 'none' }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
       ]);
@@ -210,22 +210,22 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
     isError: isAttachmentsError,
     error: attachmentsError,
   } = useQuery({
-    queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId],
-    queryFn: () => ieBaselineApi.modules.attachments.list(moduleId, currentAnswerId!),
+    queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId, userId],
+    queryFn: () => ieBaselineApi.modules.attachments.list(moduleId, currentAnswerId!, userId),
     enabled: Boolean(hasAttachmentSection && currentAnswerId),
     refetchOnWindowFocus: false,
   });
 
   const uploadAttachmentMutation = useMutation({
     mutationFn: ({ answerId, file }: { answerId: number; file: File }) =>
-      ieBaselineApi.modules.attachments.upload(moduleId, answerId, file),
+      ieBaselineApi.modules.attachments.upload(moduleId, answerId, file, userId),
     onSuccess: async () => {
       toast({
         title: 'Attachment uploaded',
         description: 'The evidence file was linked to this answer.',
       });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId, userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
       ]);
     },
@@ -240,14 +240,14 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
 
   const deleteAttachmentMutation = useMutation({
     mutationFn: (attachmentUnqId: string) =>
-      ieBaselineApi.modules.attachments.remove(moduleId, attachmentUnqId),
+      ieBaselineApi.modules.attachments.remove(moduleId, attachmentUnqId, userId),
     onSuccess: async () => {
       toast({
         title: 'Attachment removed',
         description: 'The evidence file was removed from this answer.',
       });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId, userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
       ]);
     },
@@ -561,6 +561,7 @@ export default function ExamModal({ moduleId, moduleName, onClose, reviewOnly = 
                       {hasAttachmentSection && (
                         <AttachmentSection
                           attachments={attachmentData?.attachments ?? []}
+                          userId={userId}
                           requirement={question.attachmentRequirement}
                           canEdit={!isReviewMode && !isMissingAnswerShell}
                           answerId={currentAnswerId}
@@ -713,6 +714,7 @@ function AnswerScore({ answer }: { answer: IEBaselineAttemptAnswer }) {
 
 function AttachmentSection({
   attachments,
+  userId,
   requirement,
   canEdit,
   answerId,
@@ -724,6 +726,7 @@ function AttachmentSection({
   onRemove,
 }: {
   attachments: IEBaselineAttachment[];
+  userId: number;
   requirement: string | null;
   canEdit: boolean;
   answerId: number | null;
@@ -807,7 +810,7 @@ function AttachmentSection({
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Download attachment">
-                <a href={ieBaselineApi.modules.attachments.downloadUrl(attachment.attachmentUnqId, IEBASELINE_DEMO_USER_ID)}>
+                <a href={ieBaselineApi.modules.attachments.downloadUrl(attachment.attachmentUnqId, userId)}>
                   <Download className="w-4 h-4" />
                   <span className="sr-only">Download attachment</span>
                 </a>

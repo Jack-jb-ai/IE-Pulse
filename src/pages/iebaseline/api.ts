@@ -43,6 +43,25 @@ export interface IEBaselineUser {
   assigned_module_count?: number | null;
 }
 
+export interface IEBaselineResolveCurrentUserRequest {
+  name: string;
+  email: string;
+  position: string | null;
+  department: string | null;
+}
+
+export interface IEBaselineResolveCurrentUserResponse {
+  user_id: number;
+  name: string;
+  position: string | null;
+  wd_id: number | null;
+  email: string;
+  department: string | null;
+  role_id: number | null;
+  reports_to: number | null;
+  created: boolean;
+}
+
 export interface IEBaselineModule {
   module_id: number;
   module_name: string;
@@ -312,6 +331,12 @@ export const ieBaselineApi = {
   },
   users: {
     list: () => get<IEBaselineUser[]>('/users'),
+    resolveCurrent: (payload: IEBaselineResolveCurrentUserRequest) =>
+      sendJson<IEBaselineResolveCurrentUserResponse, IEBaselineResolveCurrentUserRequest>(
+        'POST',
+        '/users/resolve-current',
+        payload,
+      ),
     modules: {
       get: (userId: number) => get<IEBaselineUserModulesResponse>(`/users/${encodeURIComponent(String(userId))}/modules`),
       update: (userId: number, payload: IEBaselineUpdateUserModulesRequest) =>

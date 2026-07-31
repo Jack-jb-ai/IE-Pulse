@@ -8,10 +8,10 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import {
   ieBaselineApi,
-  IEBASELINE_DEMO_USER_ID,
   type IEBaselineAttempt,
   type IEBaselineSubmitAttemptResponse,
 } from './api';
+import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
 type ResultsLocationState = {
   submitResult?: IEBaselineSubmitAttemptResponse;
@@ -23,6 +23,11 @@ export default function FinalResults() {
   const location = useLocation();
   const state = location.state as ResultsLocationState | null;
   const submittedAttempt = state?.submitResult?.attempt;
+  const {
+    ieBaselineUserId,
+    isLoading: isResolvingCurrentUser,
+    error: currentUserResolveError,
+  } = useIEBaselineCurrentUser();
 
   const {
     data: homeData,
@@ -30,8 +35,9 @@ export default function FinalResults() {
     isError: isHomeError,
     error: homeError,
   } = useQuery({
-    queryKey: ['iebaseline', 'home', IEBASELINE_DEMO_USER_ID],
-    queryFn: () => ieBaselineApi.home.get(IEBASELINE_DEMO_USER_ID),
+    queryKey: ['iebaseline', 'home', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.home.get(ieBaselineUserId!),
+    enabled: Boolean(ieBaselineUserId),
   });
 
   const {
@@ -40,18 +46,18 @@ export default function FinalResults() {
     isError: isAttemptsError,
     error: attemptsError,
   } = useQuery({
-    queryKey: ['iebaseline', 'modules', numericModuleId, 'attempts'],
-    queryFn: () => ieBaselineApi.modules.attempts.list(numericModuleId),
-    enabled: Number.isFinite(numericModuleId),
+    queryKey: ['iebaseline', 'modules', numericModuleId, 'attempts', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.modules.attempts.list(numericModuleId, ieBaselineUserId!),
+    enabled: Number.isFinite(numericModuleId) && Boolean(ieBaselineUserId),
     refetchOnWindowFocus: false,
   });
 
   const latestStoredAttempt = useMemo(() => getLatestCompletedAttempt(attemptHistory), [attemptHistory]);
   const assignment = homeData?.assignments.find((item) => String(item.module_id) === moduleId);
   const attempt = latestStoredAttempt ?? submittedAttempt;
-  const isLoading = isLoadingHome || (isLoadingAttempts && !submittedAttempt);
-  const isError = isHomeError || isAttemptsError || !Number.isFinite(numericModuleId);
-  const error = homeError ?? attemptsError;
+  const isLoading = isResolvingCurrentUser || isLoadingHome || (isLoadingAttempts && !submittedAttempt);
+  const isError = Boolean(currentUserResolveError) || isHomeError || isAttemptsError || !Number.isFinite(numericModuleId);
+  const error = currentUserResolveError ?? homeError ?? attemptsError;
   const resultStyle = getResultStyle(attempt?.resultStatus);
   const ResultIcon = resultStyle.Icon;
 

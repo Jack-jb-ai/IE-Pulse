@@ -220,6 +220,89 @@ Status: `500 Internal Server Error`
 }
 ```
 
+## POST /api/iebaseline/users/resolve-current
+
+Resolves the signed-in AD user to a `user_master` row for IE Baseline learner
+workflows. The operation is idempotent: repeated calls for the same email return
+the same `user_id`.
+
+Authentication: no authentication is currently required. The frontend obtains AD
+profile details from the shared current-user lookup and posts the selected
+fields here.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required |
+| Parameters | None |
+| Request body | JSON current-user profile |
+
+### Example Request
+
+```http
+POST /api/iebaseline/users/resolve-current
+Content-Type: application/json
+```
+
+```json
+{
+  "name": "Jack Goh",
+  "email": "Jack_Goh@jabil.com",
+  "position": "IE Engineer II",
+  "department": "Industrial Engineering"
+}
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_id": 42,
+  "name": "Jack Goh",
+  "position": "IE Engineer II",
+  "wd_id": null,
+  "email": "Jack_Goh@jabil.com",
+  "department": "Industrial Engineering",
+  "role_id": 1,
+  "reports_to": null,
+  "created": true
+}
+```
+
+### Backend Behavior
+
+* Validate that `email` is present and non-empty.
+* Look up `user_master` by `email`.
+* If the user exists, return the existing `user_id` and update only AD-sourced
+  profile fields: `name`, `position`, `department`, and `updated_at`.
+* Preserve existing `role_id`, `reports_to`, and `wd_id` for returning users.
+* If the user does not exist, insert a new `user_master` row with `role_id = 1`,
+  `reports_to = null`, `wd_id = null`, and the provided `name`, `email`,
+  `position`, and `department`.
+* Use the unique `user_master.email` constraint to make concurrent first-time
+  requests safe.
+
+### Error Responses
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Email is required"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
 ## GET /api/iebaseline/users
 
 Fetches users available for IE Baseline module assignment from `user_master`.
@@ -1030,7 +1113,10 @@ The backend should:
 * Validate attempt ownership/editability.
 * Validate that all answer shells for the attempt have `is_answered = true`.
   Reject before scoring when any shell is still false.
-* Validate required attachments after unanswered-shell validation.
+* Validate required attachments after unanswered-shell validation. Questions
+  with a saved leading answer label of `NA` or `N/A` are treated as not
+  applicable and do not require attachments, including descriptive values such
+  as `NA - No machine needed for this product`.
 * Calculate scores in one transaction.
 * Load answer options from the module's configured `scoring_metric_id`.
 * Never hardcode answer values such as `Yes`, `No`, or `Partial`.

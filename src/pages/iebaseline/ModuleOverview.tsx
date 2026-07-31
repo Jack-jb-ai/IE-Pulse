@@ -19,8 +19,9 @@ import {
   Trophy,
   UserCircle,
 } from 'lucide-react';
-import { ieBaselineApi, IEBASELINE_DEMO_USER_ID } from './api';
+import { ieBaselineApi } from './api';
 import ExamModal from './components/ExamModal';
+import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
 type ActiveExamMode = 'start' | 'review' | 'retake';
 
@@ -28,14 +29,25 @@ export default function ModuleOverview() {
   const { moduleId } = useParams<{ moduleId: string }>();
   const [activeExam, setActiveExam] = useState<ActiveExamMode | null>(null);
   const {
+    ieBaselineUserId,
+    isLoading: isResolvingCurrentUser,
+    error: currentUserResolveError,
+  } = useIEBaselineCurrentUser();
+
+  const {
     data,
-    isLoading,
-    isError,
-    error,
+    isLoading: isLoadingHome,
+    isError: isHomeError,
+    error: homeError,
   } = useQuery({
-    queryKey: ['iebaseline', 'home', IEBASELINE_DEMO_USER_ID],
-    queryFn: () => ieBaselineApi.home.get(IEBASELINE_DEMO_USER_ID),
+    queryKey: ['iebaseline', 'home', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.home.get(ieBaselineUserId!),
+    enabled: Boolean(ieBaselineUserId),
   });
+
+  const isLoading = isResolvingCurrentUser || isLoadingHome;
+  const isError = Boolean(currentUserResolveError) || isHomeError;
+  const error = currentUserResolveError ?? homeError;
 
   const assignment = data?.assignments.find((item) => String(item.module_id) === moduleId);
 
@@ -323,6 +335,7 @@ export default function ModuleOverview() {
         <ExamModal
           moduleId={assignment.module_id}
           moduleName={assignment.module_name}
+          userId={ieBaselineUserId!}
           reviewOnly={activeExam === 'review'}
           onClose={() => setActiveExam(null)}
         />

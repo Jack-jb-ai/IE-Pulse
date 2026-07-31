@@ -6,7 +6,8 @@ import { Progress } from '@/components/ui/progress';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, CheckCircle2, Clock, PlayCircle, UserCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { ieBaselineApi, IEBASELINE_DEMO_USER_ID, type IEBaselineHomeAssignment } from './api';
+import { ieBaselineApi, type IEBaselineHomeAssignment } from './api';
+import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
 export type ModuleStatus = 'Not Started' | 'In Progress' | 'Completed';
 
@@ -77,14 +78,26 @@ export const MODULES: ModuleData[] = [
 
 export default function IEBaseline() {
   const {
+    user: currentUser,
+    ieBaselineUserId,
+    isLoading: isResolvingCurrentUser,
+    error: currentUserResolveError,
+  } = useIEBaselineCurrentUser();
+
+  const {
     data,
-    isLoading,
-    isError,
-    error,
+    isLoading: isLoadingHome,
+    isError: isHomeError,
+    error: homeError,
   } = useQuery({
-    queryKey: ['iebaseline', 'home', IEBASELINE_DEMO_USER_ID],
-    queryFn: () => ieBaselineApi.home.get(IEBASELINE_DEMO_USER_ID),
+    queryKey: ['iebaseline', 'home', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.home.get(ieBaselineUserId!),
+    enabled: Boolean(ieBaselineUserId),
   });
+
+  const isLoading = isResolvingCurrentUser || isLoadingHome;
+  const isError = Boolean(currentUserResolveError) || isHomeError;
+  const error = currentUserResolveError ?? homeError;
 
   const getStatusColorClass = (status: ModuleStatus) => {
     switch (status) {
@@ -144,17 +157,17 @@ export default function IEBaseline() {
           {/* Table Body */}
           <div className="grid grid-cols-12 gap-4 p-4 w-full items-center text-left text-sm text-foreground">
             <div className="col-span-3">
-              <div className="font-medium">{isLoading ? 'Loading...' : data?.user.name ?? 'N/A'}</div>
+              <div className="font-medium">{isLoading ? 'Loading...' : data?.user.name ?? currentUser?.fullName ?? 'N/A'}</div>
               {!isLoading && (
                 <div className="text-xs text-muted-foreground mt-1">
                   WD ID: {data?.user.wd_id ?? 'N/A'}
                 </div>
               )}
             </div>
-            <div className="col-span-4">N/A</div>
-            <div className="col-span-3">N/A</div>
+            <div className="col-span-4">{currentUser?.email ?? 'N/A'}</div>
+            <div className="col-span-3">{currentUser?.department ?? 'N/A'}</div>
             <div className="col-span-2">
-              {isLoading ? 'Loading...' : data?.user.position ?? 'N/A'}
+              {isLoading ? 'Loading...' : data?.user.position ?? currentUser?.jobTitle ?? 'N/A'}
             </div>
           </div>
         </Card>
@@ -193,7 +206,7 @@ export default function IEBaseline() {
 
           {!isLoading && !isError && assignments.length === 0 && (
             <div className="p-6 text-sm text-muted-foreground">
-              No IE Baseline modules are assigned to this demo user yet.
+              No IE Baseline modules are assigned to your profile yet.
             </div>
           )}
 
