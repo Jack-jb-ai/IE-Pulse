@@ -46,8 +46,9 @@ For now, the page is also the source of the mock module data used by other IE Ba
 
 Current update:
 
-- The home page now fetches learner home data from `GET /api/iebaseline/home?user_id=1`.
-- `user_id=1` is a temporary demo-user default until authentication/current-user lookup exists.
+- The home page now fetches learner home data from `GET /api/iebaseline/home?user_id={user_id}`.
+- The frontend resolves `{user_id}` through current-user lookup, or through an
+  explicit staging override when configured.
 - Assignment progress now supports latest-attempt percentages from `0` to `100`, not only `0` or `100`.
 - Assignment status now supports the derived API labels `Not Started`, `In Progress`, and `Completed`.
 - Email and department remain placeholders because the current API response does not include them.
@@ -231,7 +232,7 @@ Prefer adding new optional fields without removing the existing display fields u
 Current documented backend endpoints:
 
 ```text
-GET /api/iebaseline/home?user_id=1
+GET /api/iebaseline/home?user_id={user_id}
 GET /api/iebaseline/modules/{moduleName}/questions
 ```
 
@@ -247,13 +248,13 @@ baseline_checklist
 The home page calls the home endpoint through the frontend path:
 
 ```text
-/ietools/iebaseline/api/home?user_id=1
+/ietools/iebaseline/api/home?user_id={user_id}
 ```
 
 The Vite development proxy rewrites that path to:
 
 ```text
-/api/iebaseline/home?user_id=1
+/api/iebaseline/home?user_id={user_id}
 ```
 
 `ModuleOverview` or `ExamModal` should load detailed module/question data separately.
@@ -273,13 +274,15 @@ These endpoints do not exist yet; they are design placeholders only.
 The home page expects this endpoint:
 
 ```http
-GET /api/iebaseline/home?user_id=1
+GET /api/iebaseline/home?user_id={user_id}
 ```
 
-Temporary identity behavior:
+Identity behavior:
 
-- Use `user_id=1` as the default demo user.
-- Replace this with authenticated current-user lookup when authentication is implemented.
+- Resolve the runtime learner through `useIEBaselineCurrentUser`.
+- Normal runs use AD email plus `POST /api/iebaseline/users/resolve-current`.
+- Staging can explicitly set `VITE_IEBASELINE_USER_ID_OVERRIDE` to use a
+  temporary DB user ID.
 
 Expected response shape:
 

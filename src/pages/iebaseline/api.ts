@@ -1,5 +1,3 @@
-export const IEBASELINE_DEMO_USER_ID = 1;
-
 const BASE = '/ietools/iebaseline/api';
 
 export type IEBaselineHomeStatus = 'Not Started' | 'In Progress' | 'Completed';
@@ -326,7 +324,7 @@ function formatErrorDetail(detail: unknown, validationDetail: IEBaselineValidati
 
 export const ieBaselineApi = {
   home: {
-    get: (userId = IEBASELINE_DEMO_USER_ID) =>
+    get: (userId: number) =>
       get<IEBaselineHomeResponse>(`/home?user_id=${encodeURIComponent(String(userId))}`),
   },
   users: {
@@ -354,13 +352,13 @@ export const ieBaselineApi = {
         get<IEBaselineModuleQuestion[]>(`/modules/${encodeURIComponent(String(moduleId))}/questions`),
     },
     attempts: {
-      start: (moduleId: number, userId = IEBASELINE_DEMO_USER_ID) =>
+      start: (moduleId: number, userId: number) =>
         sendJson<IEBaselineStartAttemptResponse, IEBaselineStartAttemptRequest>(
           'POST',
           `/modules/${encodeURIComponent(String(moduleId))}/attempts/start`,
           { userId },
         ),
-      list: async (moduleId: number, userId = IEBASELINE_DEMO_USER_ID) => {
+      list: async (moduleId: number, userId: number) => {
         const data = await get<IEBaselineAttemptHistoryResponse>(
           `/modules/${encodeURIComponent(String(moduleId))}/attempts?user_id=${encodeURIComponent(String(userId))}`,
         );
@@ -369,11 +367,11 @@ export const ieBaselineApi = {
       },
     },
     attachments: {
-      list: (moduleId: number, answerId: number, userId = IEBASELINE_DEMO_USER_ID) =>
+      list: (moduleId: number, answerId: number, userId: number) =>
         get<IEBaselineAttachmentsResponse>(
           `/modules/${encodeURIComponent(String(moduleId))}/attachments?user_id=${encodeURIComponent(String(userId))}&answer_id=${encodeURIComponent(String(answerId))}`,
         ),
-      upload: (moduleId: number, answerId: number, file: File, userId = IEBASELINE_DEMO_USER_ID) => {
+      upload: (moduleId: number, answerId: number, file: File, userId: number) => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('uploadedBy', String(userId));
@@ -386,12 +384,12 @@ export const ieBaselineApi = {
           formData,
         );
       },
-      remove: (moduleId: number, attachmentUnqId: string, userId = IEBASELINE_DEMO_USER_ID) =>
+      remove: (moduleId: number, attachmentUnqId: string, userId: number) =>
         sendJson<IEBaselineDeleteAttachmentResponse>(
           'DELETE',
           `/modules/${encodeURIComponent(String(moduleId))}/attachments/${encodeURIComponent(attachmentUnqId)}?user_id=${encodeURIComponent(String(userId))}`,
         ),
-      downloadUrl: (attachmentUnqId: string, userId = IEBASELINE_DEMO_USER_ID) =>
+      downloadUrl: (attachmentUnqId: string, userId: number) =>
         `${BASE}/attachments/${encodeURIComponent(attachmentUnqId)}/download?user_id=${encodeURIComponent(String(userId))}`,
     },
   },

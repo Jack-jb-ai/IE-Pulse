@@ -16,7 +16,9 @@ In development, Vite rewrites that prefix to:
 /api/iebaseline
 ```
 
-The frontend currently uses demo user ID `1` through `IEBASELINE_DEMO_USER_ID`.
+The frontend resolves the active learner through `useIEBaselineCurrentUser`.
+Normal runs use AD email plus `POST /users/resolve-current`; staging can set
+`VITE_IEBASELINE_USER_ID_OVERRIDE` to use a temporary DB user ID explicitly.
 
 ## Route Map
 
@@ -46,7 +48,7 @@ Features:
 
 API calls:
 
-* `GET /home?user_id=1`
+* `GET /home?user_id={user_id}`
 
 Actions and triggers:
 
@@ -71,7 +73,7 @@ Features:
 
 API calls:
 
-* `GET /home?user_id=1`
+* `GET /home?user_id={user_id}`
 * Delegates exam behavior to `components/ExamModal.tsx`.
 
 Actions and triggers:
@@ -101,7 +103,7 @@ Features:
 API calls:
 
 * `POST /modules/{module_id}/attempts/start`
-* `GET /modules/{module_id}/attempts?user_id=1`
+* `GET /modules/{module_id}/attempts?user_id={user_id}`
 * `GET /attempts/{attempt_id}/questions`
 * `PUT /attempts/{attempt_id}/questions/{question_id}/answer`
 * `DELETE /attempts/{attempt_id}/questions/{question_id}/answer`
@@ -132,8 +134,8 @@ Features:
 
 API calls:
 
-* `GET /home?user_id=1`
-* `GET /modules/{module_id}/attempts?user_id=1`
+* `GET /home?user_id={user_id}`
+* `GET /modules/{module_id}/attempts?user_id={user_id}`
 
 Actions and triggers:
 

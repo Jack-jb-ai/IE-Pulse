@@ -24,7 +24,7 @@ const pages = [
     owner: 'Learner home and assignment progress display',
     source: 'Backend home API for visible assignment rows; legacy MODULES remains exported for old admin pages.',
     features: [
-      'Loads the demo learner profile and assigned module list.',
+      'Loads the resolved learner profile and assigned module list.',
       'Displays progress, derived status, owner, assigned by, assigned date, updated date, and question count.',
       'Expands a module row to show details and actions.',
       'Links each assignment to the module overview route.',

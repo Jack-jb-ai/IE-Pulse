@@ -1,5 +1,32 @@
 # IE Baseline Progress
 
+## 2026-07-31 - Removed Demo User Fallback and Added Staging Override
+
+Removed the unsafe IE Baseline demo-user fallback and added an explicit
+staging-only user ID override.
+
+### Updated
+
+- Removed the hardcoded user ID fallback from the IE Baseline frontend API
+  client.
+- IE Baseline API helpers now require explicit `userId` arguments for learner
+  home, attempts, and attachment calls.
+- Added `VITE_IEBASELINE_USER_ID_OVERRIDE` support in
+  `useIEBaselineCurrentUser`.
+- When the override is set to a valid positive integer, the hook returns that
+  value as `ieBaselineUserId`, skips current-user resolution, and does not block
+  on missing AD email.
+- Normal behavior is unchanged when the override is absent: AD email is required
+  and `POST /api/iebaseline/users/resolve-current` resolves the runtime DB user.
+
+### Verified
+
+- Confirmed no IE Baseline source or docs reference the removed demo-user
+  constant or the old user ID fallback language.
+- Ran `npm run build:iebaseline`.
+- Ran `$env:VITE_IEBASELINE_USER_ID_OVERRIDE='4'; npm run build:iebaseline`.
+- Both builds passed when run with approval for Vite/Node subprocess spawning.
+
 ## 2026-07-31 - Answer Shell and Attachment Frontend Wiring
 
 Implemented the frontend side of the IE Baseline answer-shell and attachment
@@ -89,8 +116,7 @@ current-user resolution flow.
 
 - Ran `npm run build:iebaseline`.
 - The build passed when run with approval for Vite/Node subprocess spawning.
-- Confirmed learner pages and the exam modal no longer reference
-  `IEBASELINE_DEMO_USER_ID` directly.
+- Confirmed learner pages and the exam modal use the runtime resolved user ID.
 
 ## 2026-07-24 - Home Page Latest Attempt Progress Contract
 
@@ -212,10 +238,11 @@ src/pages/iebaseline/api.ts
 - The client calls:
 
 ```http
-GET /ietools/iebaseline/api/home?user_id=1
+GET /ietools/iebaseline/api/home?user_id={user_id}
 ```
 
-- `user_id=1` is currently the temporary demo user until authentication/current-user lookup is implemented later.
+- The frontend now requires a resolved runtime IE Baseline user ID before
+  calling the home API.
 - Added Vite dev proxy support so the frontend path rewrites to the FastAPI backend:
 
 ```text
@@ -386,7 +413,7 @@ String(assignment.module_id) === moduleId
 ```
 
 - This fixes the false "Module Not Found" state when clicking assigned backend modules from the home page.
-- `Module Not Found` now only appears after the home API loads successfully and the numeric module ID is not assigned to the demo user.
+- `Module Not Found` now only appears after the home API loads successfully and the numeric module ID is not assigned to the resolved learner.
 
 ### Added
 
@@ -576,17 +603,11 @@ submittedAt = now()
 - Because there is not yet an auth/session layer, start/resume currently requires a learner id.
 - The frontend now sends the preferred body payload:
 
-```json
-{
-  "userId": 1
-}
-```
-
-- `userId=1` uses the existing `IEBASELINE_DEMO_USER_ID` temporary demo learner.
+- Earlier development builds used a temporary learner ID for this request.
 - Backend also supports the compatibility query form:
 
 ```http
-POST /api/iebaseline/modules/{module_id}/attempts/start?user_id=1
+POST /api/iebaseline/modules/{module_id}/attempts/start?user_id={user_id}
 ```
 
 - If neither is provided, backend returns:

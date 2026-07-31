@@ -72,7 +72,7 @@ Authentication: no authentication is currently required.
 ### Example Request
 
 ```http
-GET /api/iebaseline/home?user_id=1
+GET /api/iebaseline/home?user_id={user_id}
 ```
 
 ### Success Response
@@ -718,7 +718,7 @@ Content-Type: application/json
 Compatibility form:
 
 ```http
-POST /api/iebaseline/modules/3/attempts/start?user_id=1
+POST /api/iebaseline/modules/3/attempts/start?user_id={user_id}
 ```
 
 ### Backend Behavior
@@ -1272,7 +1272,7 @@ The backend now returns attempts in compatible order:
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules/3/attempts?user_id=1
+GET /api/iebaseline/modules/3/attempts?user_id={user_id}
 ```
 
 ### Success Response
@@ -1403,7 +1403,7 @@ Lists attachments for one module.
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules/3/attachments?user_id=1&answer_id=501
+GET /api/iebaseline/modules/3/attachments?user_id={user_id}&answer_id=501
 ```
 
 ### Success Response
@@ -1447,7 +1447,7 @@ Downloads one attachment through the backend.
 ### Example Request
 
 ```http
-GET /api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download?user_id=1
+GET /api/iebaseline/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851/download?user_id={user_id}
 ```
 
 The response body is the file content. The backend sets the download filename
@@ -1471,7 +1471,7 @@ to any module, the backend also removes the metadata row and local file.
 ### Example Request
 
 ```http
-DELETE /api/iebaseline/modules/3/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851?user_id=1
+DELETE /api/iebaseline/modules/3/attachments/3a83398f-9f4a-453d-89a4-708e20f8f851?user_id={user_id}
 ```
 
 ### Success Response
