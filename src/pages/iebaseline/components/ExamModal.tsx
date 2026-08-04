@@ -563,6 +563,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
                           attachments={attachmentData?.attachments ?? []}
                           userId={userId}
                           requirement={question.attachmentRequirement}
+                          instruction={question.attachmentInstruction}
                           canEdit={!isReviewMode && !isMissingAnswerShell}
                           answerId={currentAnswerId}
                           isLoading={isLoadingAttachments}
@@ -716,6 +717,7 @@ function AttachmentSection({
   attachments,
   userId,
   requirement,
+  instruction,
   canEdit,
   answerId,
   isLoading,
@@ -728,6 +730,7 @@ function AttachmentSection({
   attachments: IEBaselineAttachment[];
   userId: number;
   requirement: string | null;
+  instruction: string | null;
   canEdit: boolean;
   answerId: number | null;
   isLoading: boolean;
@@ -739,6 +742,7 @@ function AttachmentSection({
 }) {
   const fileInputId = answerId ? `attachment-upload-${answerId}` : 'attachment-upload-missing';
   const isRequired = requirement === 'required';
+  const requiredInstruction = instruction?.trim() || 'Supporting evidence is required before finishing this checklist.';
 
   return (
     <div className="rounded-xl border border-border bg-muted/20 p-4">
@@ -750,7 +754,7 @@ function AttachmentSection({
           <div>
             <h4 className="text-sm font-semibold text-foreground">{isRequired ? 'Required attachment' : 'Optional attachment'}</h4>
             <p className="text-xs text-muted-foreground">
-              {isRequired ? 'Supporting evidence is required before finishing this checklist.' : 'Add supporting evidence if needed.'}
+              {isRequired ? requiredInstruction : 'Add supporting evidence if needed.'}
             </p>
           </div>
         </div>

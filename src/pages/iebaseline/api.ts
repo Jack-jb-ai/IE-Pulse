@@ -214,6 +214,7 @@ export interface IEBaselineAttemptQuestion {
   question: string;
   options: string | null;
   attachmentRequirement: 'none' | 'optional' | 'required' | string | null;
+  attachmentInstruction: string | null;
   attachmentApprovalRequired: boolean | null;
   reference: string | null;
   memo: string | null;

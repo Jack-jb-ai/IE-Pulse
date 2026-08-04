@@ -1404,6 +1404,7 @@ Status: `200 OK`
       "reference": null,
       "memo": null,
       "attachmentRequirement": "required",
+      "attachmentInstruction": "Upload the signed checklist or supporting evidence for this item.",
       "attachmentApprovalRequired": false,
       "answer": {
         "answerId": 5001,
@@ -1433,10 +1434,13 @@ The legacy `options` string remains in the payload for compatibility.
 ```
 
 Questions with `attachmentRequirement: "required"` should display the frontend
-attachment section. `answer.isAttached` is maintained by the backend attachment
-APIs and indicates whether that saved answer currently has evidence linked.
-Attachment upload should use `answer.answerId`; it should not wait for the
-answer save endpoint.
+attachment section and use `attachmentInstruction` from
+`baseline_checklist.attachment_instruction` as the required evidence helper text.
+If that value is blank or null, the frontend may fall back to its default required
+attachment copy. `answer.isAttached` is maintained by the backend attachment APIs
+and indicates whether that saved answer currently has evidence linked. Attachment
+upload should use `answer.answerId`; it should not wait for the answer save
+endpoint.
 
 ## PUT /api/iebaseline/attempts/{attempt_id}/questions/{question_id}/answer
 

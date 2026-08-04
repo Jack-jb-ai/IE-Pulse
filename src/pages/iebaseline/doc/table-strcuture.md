@@ -540,6 +540,7 @@ Table name: `baseline_checklist`
 | `memo` | text | text | `memo`, `notes`, `question notes`, `remarks` |
 | `available_points` | numeric(10,2) | numeric(10,2) | `Available Points`, `available points`, `available_points` |
 | `attachment_requirement` | USER-DEFINED | attachment_requirement | Question attachment rule: `none`, `optional`, or `required` |
+| `attachment_instruction` | text | text | Instruction shown to users when `attachment_requirement = 'required'` |
 | `attachment_approval_required` | boolean | bool | Whether uploaded evidence requires trainer/admin approval |
 
 ## Table - Module Master
@@ -1740,6 +1741,7 @@ The scoring configuration uses the following structures:
 |----------|-----------|-------------|-------------|
 | `available_points` | `NUMERIC(10,2)` | Not null, default `1`, value >= 0 | Maximum score available for this checklist question before multipliers are applied. |
 | `attachment_requirement` | `attachment_requirement` enum | Not null, default `'none'` | Indicates whether the question has no attachment support, optional attachment support, or a mandatory attachment requirement. |
+| `attachment_instruction` | `TEXT` | Nullable | Instruction shown to users when `attachment_requirement = 'required'`. |
 | `attachment_approval_required` | `BOOLEAN` | Not null, default `false` | Indicates whether an uploaded attachment should enter a manual trainer/admin approval workflow. |
 
 ### Notes
@@ -1751,6 +1753,7 @@ The scoring configuration uses the following structures:
 * `is_applicable = false` means the selected option is excluded from scoring and its available points are not included in the final denominator.
 * `score_multiplier = 0` with `is_applicable = true` means zero credit, not exclusion.
 * `attachment_requirement` controls whether the frontend should show attachment functionality and whether evidence is mandatory before submission.
+* `attachment_instruction` provides the required-attachment helper text shown by the frontend when `attachment_requirement = 'required'`.
 * `attachment_approval_required` is intentionally separate from `attachment_requirement` because mandatory evidence and manual approval are different business rules.
 * `attachment_requirement = 'none'` should normally be paired with `attachment_approval_required = false`.
 
