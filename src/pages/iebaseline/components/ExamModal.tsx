@@ -865,7 +865,7 @@ function SubmitValidationDialog({
         <div className="grid gap-2">
           {missing.map((item) => {
             const question = questions.find((candidate) => candidate.questionId === item.question_id);
-            const label = item.question_no ?? question?.questionNo ?? item.question_id;
+            const label = item.question_num ?? item.question_no ?? question?.questionNo ?? item.question_id;
 
             return (
               <Button

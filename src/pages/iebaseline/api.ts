@@ -250,6 +250,7 @@ export interface IEBaselineSubmitAttemptResponse {
 
 export interface IEBaselineValidationQuestion {
   question_id: number;
+  question_num?: number | string | null;
   question_no: number | string | null;
 }
 

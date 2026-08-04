@@ -1,5 +1,37 @@
 # IE Baseline Progress
 
+## 2026-08-04 - Submit Validation Question Number
+
+Updated the IE Baseline submit validation flow to use the backend-provided
+exam-facing question number for missing attachment and unanswered question
+dialogs.
+
+### Updated
+
+- Backend now supports `baseline_checklist.question_num` as the per-module
+  exam question number.
+- `question_num` is populated independently per `module_id`, ordered by
+  `baseline_checklist.id ASC`.
+- Submit validation responses can now include `question_num` for both
+  `UNANSWERED_QUESTIONS` and `REQUIRED_ATTACHMENTS_MISSING`.
+- Frontend validation types now accept optional `question_num`.
+- The submit validation dialog now displays question labels using:
+
+```text
+question_num -> question_no -> loaded questionNo -> question_id
+```
+
+- Added `question-num-backend-request.md` as the backend handoff/reference note
+  for the requested database and API behavior.
+
+### Verified
+
+- Ran `npm run build:iebaseline`.
+- The sandboxed build hit the known Windows Vite `spawn EPERM` while loading
+  config.
+- The same build passed when rerun with approval for Vite/Node subprocess
+  spawning.
+
 ## 2026-07-31 - User Management Frontend and Backend Contract
 
 Implemented the IE Baseline User Management frontend and documented the
