@@ -391,6 +391,23 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function appendQuery(path: string, params: Record<string, string | number | null | undefined>) {
+  const [basePath, currentQuery = ''] = path.split('?');
+  const searchParams = new URLSearchParams(currentQuery);
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined || value === '') continue;
+    searchParams.set(key, String(value));
+  }
+
+  const query = searchParams.toString();
+  return query ? `${basePath}?${query}` : basePath;
+}
+
+function withCurrentUser(path: string, currentUserId: number) {
+  return appendQuery(path, { current_user_id: currentUserId });
+}
+
 async function sendJson<TResponse, TBody = undefined>(method: 'PUT' | 'POST' | 'DELETE', path: string, body?: TBody): Promise<TResponse> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -453,37 +470,39 @@ export const ieBaselineApi = {
       get<IEBaselineHomeResponse>(`/home?user_id=${encodeURIComponent(String(userId))}`),
   },
   users: {
-    list: () => get<IEBaselineUser[]>('/users'),
-    search: (query?: string, options?: { limit?: number; excludeUserId?: number | null }) => {
-      const params = new URLSearchParams();
+    list: (currentUserId: number) =>
+      get<IEBaselineUser[]>(withCurrentUser('/users', currentUserId)),
+    search: (query: string | undefined, options: { limit?: number; excludeUserId?: number | null } | undefined, currentUserId: number) => {
+      const params: Record<string, string | number | null | undefined> = {
+        current_user_id: currentUserId,
+      };
       const trimmed = query?.trim();
-      if (trimmed) params.set('q', trimmed);
-      if (options?.limit) params.set('limit', String(options.limit));
-      if (options?.excludeUserId) params.set('exclude_user_id', String(options.excludeUserId));
-      const qs = params.toString();
-      return get<IEBaselineUserProfile[]>(`/users/search${qs ? `?${qs}` : ''}`);
+      if (trimmed) params.q = trimmed;
+      if (options?.limit) params.limit = options.limit;
+      if (options?.excludeUserId) params.exclude_user_id = options.excludeUserId;
+      return get<IEBaselineUserProfile[]>(appendQuery('/users/search', params));
     },
-    get: (userId: number) =>
-      get<IEBaselineUserProfile>(`/users/${encodeURIComponent(String(userId))}`),
+    get: (userId: number, currentUserId: number) =>
+      get<IEBaselineUserProfile>(withCurrentUser(`/users/${encodeURIComponent(String(userId))}`, currentUserId)),
     create: (payload: IEBaselineUserPayload) =>
       sendJson<IEBaselineUserMutationResponse, IEBaselineUserPayload>(
         'POST',
         '/users/create',
         payload,
       ),
-    update: (userId: number, payload: IEBaselineUserPayload) =>
+    update: (userId: number, payload: IEBaselineUserPayload, currentUserId: number) =>
       sendJson<IEBaselineUserMutationResponse, IEBaselineUserPayload>(
         'PUT',
-        `/users/${encodeURIComponent(String(userId))}`,
+        withCurrentUser(`/users/${encodeURIComponent(String(userId))}`, currentUserId),
         payload,
       ),
-    remove: (userId: number) =>
+    remove: (userId: number, currentUserId: number) =>
       sendJson<IEBaselineDeleteUserResponse>(
         'DELETE',
-        `/users/${encodeURIComponent(String(userId))}`,
+        withCurrentUser(`/users/${encodeURIComponent(String(userId))}`, currentUserId),
       ),
-    deletePreview: (userId: number) =>
-      get<IEBaselineDeletePreview>(`/users/${encodeURIComponent(String(userId))}/delete-preview`),
+    deletePreview: (userId: number, currentUserId: number) =>
+      get<IEBaselineDeletePreview>(withCurrentUser(`/users/${encodeURIComponent(String(userId))}/delete-preview`, currentUserId)),
     resolveCurrent: (payload: IEBaselineResolveCurrentUserRequest) =>
       sendJson<IEBaselineResolveCurrentUserResponse, IEBaselineResolveCurrentUserRequest>(
         'POST',
@@ -491,11 +510,14 @@ export const ieBaselineApi = {
         payload,
       ),
     modules: {
-      get: (userId: number) => get<IEBaselineUserModulesResponse>(`/users/${encodeURIComponent(String(userId))}/modules`),
-      update: (userId: number, payload: IEBaselineUpdateUserModulesRequest) =>
+      get: (userId: number, currentUserId: number) =>
+        get<IEBaselineUserModulesResponse>(
+          withCurrentUser(`/users/${encodeURIComponent(String(userId))}/modules`, currentUserId),
+        ),
+      update: (userId: number, payload: IEBaselineUpdateUserModulesRequest, currentUserId: number) =>
         sendJson<IEBaselineUpdateUserModulesResponse, IEBaselineUpdateUserModulesRequest>(
           'PUT',
-          `/users/${encodeURIComponent(String(userId))}/modules`,
+          withCurrentUser(`/users/${encodeURIComponent(String(userId))}/modules`, currentUserId),
           payload,
       ),
     },
@@ -505,13 +527,15 @@ export const ieBaselineApi = {
     },
   },
   roles: {
-    list: () => get<IEBaselineRole[]>('/roles'),
+    list: (currentUserId: number) => get<IEBaselineRole[]>(withCurrentUser('/roles', currentUserId)),
   },
   modules: {
-    list: () => get<IEBaselineModule[]>('/modules'),
+    list: (currentUserId: number) => get<IEBaselineModule[]>(withCurrentUser('/modules', currentUserId)),
     questions: {
-      get: (moduleId: number) =>
-        get<IEBaselineModuleQuestion[]>(`/modules/${encodeURIComponent(String(moduleId))}/questions`),
+      get: (moduleId: number, currentUserId: number) =>
+        get<IEBaselineModuleQuestion[]>(
+          withCurrentUser(`/modules/${encodeURIComponent(String(moduleId))}/questions`, currentUserId),
+        ),
     },
     attempts: {
       start: (moduleId: number, userId: number) =>
@@ -559,24 +583,32 @@ export const ieBaselineApi = {
     get: (attemptId: number) =>
       get<IEBaselineAttempt>(`/attempts/${encodeURIComponent(String(attemptId))}`),
     questions: {
-      get: (attemptId: number) =>
-        get<IEBaselineAttemptQuestionsResponse>(`/attempts/${encodeURIComponent(String(attemptId))}/questions`),
-      saveAnswer: (attemptId: number, questionId: number, payload: IEBaselineSaveAnswerRequest) =>
+      get: (attemptId: number, currentUserId: number) =>
+        get<IEBaselineAttemptQuestionsResponse>(
+          withCurrentUser(`/attempts/${encodeURIComponent(String(attemptId))}/questions`, currentUserId),
+        ),
+      saveAnswer: (attemptId: number, questionId: number, payload: IEBaselineSaveAnswerRequest, currentUserId: number) =>
         sendJson<IEBaselineSaveAnswerResponse, IEBaselineSaveAnswerRequest>(
           'PUT',
-          `/attempts/${encodeURIComponent(String(attemptId))}/questions/${encodeURIComponent(String(questionId))}/answer`,
+          withCurrentUser(
+            `/attempts/${encodeURIComponent(String(attemptId))}/questions/${encodeURIComponent(String(questionId))}/answer`,
+            currentUserId,
+          ),
           payload,
         ),
-      clearAnswer: (attemptId: number, questionId: number) =>
+      clearAnswer: (attemptId: number, questionId: number, currentUserId: number) =>
         sendJson<IEBaselineSaveAnswerResponse>(
           'DELETE',
-          `/attempts/${encodeURIComponent(String(attemptId))}/questions/${encodeURIComponent(String(questionId))}/answer`,
+          withCurrentUser(
+            `/attempts/${encodeURIComponent(String(attemptId))}/questions/${encodeURIComponent(String(questionId))}/answer`,
+            currentUserId,
+          ),
         ),
     },
-    submit: (attemptId: number) =>
+    submit: (attemptId: number, currentUserId: number) =>
       sendJson<IEBaselineSubmitAttemptResponse>(
         'POST',
-        `/attempts/${encodeURIComponent(String(attemptId))}/submit`,
+        withCurrentUser(`/attempts/${encodeURIComponent(String(attemptId))}/submit`, currentUserId),
       ),
   },
   approvals: {

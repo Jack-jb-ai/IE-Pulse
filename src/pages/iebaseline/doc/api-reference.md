@@ -2,9 +2,8 @@
 
 This backend exposes a small FastAPI API for the IE Baseline frontend.
 
-Authentication: no authentication is currently required for any endpoint.
-Authorization-sensitive IE Baseline APIs use the resolved `user_master.user_id`
-passed by the frontend.
+The parent application owns authentication. IE Baseline authorizes protected API
+calls with the resolved `user_master.user_id` passed by the frontend.
 
 ## Current User Authorization Contract
 
@@ -19,11 +18,39 @@ Flow:
 3. If the backend returns `404 User not found`, the frontend may create the user
    through `POST /api/iebaseline/users/create` with minimum role permission.
 4. Subsequent APIs pass the resolved `user_id`, `uploadedBy`,
-   `approver_user_id`, or `reviewerUserId` as required by each endpoint.
+   `approver_user_id`, `reviewerUserId`, or `current_user_id` as required by
+   each endpoint.
 
-Backend approval authorization checks compare these supplied identifiers against
-`user_master.user_id`, `user_exam_attempt.user_id`, and
-`approval_request.assigned_to`.
+Route-level RBAC uses:
+
+```text
+user_master.role_id
+  -> role_system_module_access.role_id
+  -> system_module_master.system_module_id
+```
+
+Protected endpoints require the actor's role to have `can_view = true` for an
+active `system_module_master.route_path`. Learner module assignment checks
+remain separate and are still enforced where applicable.
+
+Common RBAC errors:
+
+```json
+{ "detail": "current_user_id is required" }
+```
+
+```json
+{ "detail": "User role is not authorized" }
+```
+
+```json
+{ "detail": "User lacks system module access" }
+```
+
+Backend authorization checks compare these supplied identifiers against
+`user_master.user_id`, `user_exam_attempt.user_id`,
+`approval_request.assigned_to`, and route grants in
+`role_system_module_access`.
 
 Response format: endpoints return JSON.
 
@@ -80,13 +107,14 @@ Fetches IE Baseline learner home page data for one user, including the user's
 profile details, assigned modules, assignment status, progress, module metadata,
 assignee details, and module checklist question counts.
 
-Authentication: no authentication is currently required.
+Authorization: uses `user_id` as the resolved IE Baseline actor and requires
+access to `/iebaseline`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved user query required |
 | Query parameter | `user_id`, required integer |
 | Request body | None |
 
@@ -247,15 +275,15 @@ Resolves the signed-in AD user to an existing `user_master` row for IE Baseline
 learner workflows. The operation is idempotent: repeated calls for the same
 email return the same `user_id`.
 
-Authentication: no authentication is currently required. The frontend obtains AD
-profile details from the shared current-user lookup and posts the selected
-fields here.
+IE Baseline RBAC is not required for this bootstrap endpoint. The frontend
+obtains AD profile details from the shared current-user lookup and posts the
+selected fields here.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; no IE Baseline RBAC required |
 | Parameters | None |
 | Request body | JSON current-user profile |
 
@@ -335,13 +363,13 @@ Status: `500 Internal Server Error`
 
 Creates a `user_master` row for User Management workflows.
 
-Authentication: no authentication is currently required.
+IE Baseline RBAC is not required for this bootstrap/user-provisioning endpoint.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; no IE Baseline RBAC required |
 | Parameters | None |
 | Request body | JSON user profile |
 
@@ -447,20 +475,21 @@ Status: `500 Internal Server Error`
 
 Updates a `user_master` row for User Management workflows.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `user_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | JSON user profile |
 
 ### Example Request
 
 ```http
-PUT /api/iebaseline/users/42
+PUT /api/iebaseline/users/42?current_user_id=5
 Content-Type: application/json
 ```
 
@@ -569,20 +598,21 @@ Status: `500 Internal Server Error`
 
 Deletes a `user_master` row for User Management workflows.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `user_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-DELETE /api/iebaseline/users/42
+DELETE /api/iebaseline/users/42?current_user_id=5
 ```
 
 ### Success Response
@@ -636,22 +666,23 @@ Searches users for User Management selectors, including `reports_to` dropdowns.
 This endpoint is intended to avoid fetching every user record when the frontend
 only needs a searchable pick list.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Query parameter | `q`, optional string |
 | Query parameter | `limit`, optional integer, defaults to `25` |
 | Query parameter | `exclude_user_id`, optional integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/users/search?q=jack&limit=25&exclude_user_id=42
+GET /api/iebaseline/users/search?q=jack&limit=25&exclude_user_id=42&current_user_id=5
 ```
 
 ### Success Response
@@ -699,20 +730,21 @@ Status: `500 Internal Server Error`
 Fetches one full `user_master` profile for User Management update and delete
 workflows.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `user_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/users/42
+GET /api/iebaseline/users/42?current_user_id=5
 ```
 
 ### Success Response
@@ -757,20 +789,20 @@ Status: `500 Internal Server Error`
 
 Fetches role options for User Management.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
-| Parameters | None |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/roles
+GET /api/iebaseline/roles?current_user_id=5
 ```
 
 ### Success Response
@@ -801,20 +833,21 @@ Status: `500 Internal Server Error`
 Previews whether a user can be deleted and which related records may block the
 delete.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `user_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/users/42/delete-preview
+GET /api/iebaseline/users/42/delete-preview?current_user_id=5
 ```
 
 ### Success Response
@@ -869,20 +902,20 @@ Status: `500 Internal Server Error`
 Fetches users available for IE Baseline module assignment from `user_master`.
 Results are ordered by user name and then `user_id`.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
-| Parameters | None |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/users
+GET /api/iebaseline/users?current_user_id=5
 ```
 
 ### Success Response
@@ -926,20 +959,20 @@ Status: `500 Internal Server Error`
 Fetches all assignable IE Baseline modules from `module_master`.
 Results are ordered by module name and then `module_id`.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/assign`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
-| Parameters | None |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules
+GET /api/iebaseline/modules?current_user_id=5
 ```
 
 ### Success Response
@@ -982,24 +1015,113 @@ Status: `500 Internal Server Error`
 }
 ```
 
-## GET /api/iebaseline/users/{user_id}/modules
+## GET /api/iebaseline/users/{user_id}/system-modules
 
-Fetches a user and the module IDs currently assigned to them.
+Returns active IE Baseline system routes that the resolved user's role can view.
+The frontend uses this response for sidebar visibility and direct route blocking.
 
-Authentication: no authentication is currently required.
+Authorization: validates that `user_id` exists and has a valid role.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; IE Baseline user already resolved |
 | Path parameter | `user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/users/1/modules
+GET /api/iebaseline/users/1/system-modules
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_id": 1,
+  "role_id": 2,
+  "modules": [
+    {
+      "system_module_id": 1,
+      "module_code": "EDIT_MODULES",
+      "module_name": "Edit Modules",
+      "module_description": "Create, edit, and maintain baseline exam modules.",
+      "route_path": "/iebaseline/edit",
+      "can_view": true,
+      "is_active": true
+    }
+  ]
+}
+```
+
+For a valid user with no access rows, return:
+
+```json
+{
+  "user_id": 1,
+  "role_id": 1,
+  "modules": []
+}
+```
+
+### Backend Behavior
+
+* Join `user_master` to `role_system_module_access` by `role_id`.
+* Join to `system_module_master` by `system_module_id`.
+* Include only `role_system_module_access.can_view = true`.
+* Include only `system_module_master.is_active = true`.
+* Return modules ordered by `system_module_id`.
+* Return snake_case field names.
+
+### Error Responses
+
+Status: `404 Not Found`
+
+```json
+{
+  "detail": "User not found"
+}
+```
+
+Status: `403 Forbidden`
+
+```json
+{
+  "detail": "User role is not authorized"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## GET /api/iebaseline/users/{user_id}/modules
+
+Fetches a user and the module IDs currently assigned to them.
+
+Authorization: requires `current_user_id` with access to `/iebaseline/assign`.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
+| Path parameter | `user_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/users/1/modules?current_user_id=5
 ```
 
 ### Success Response
@@ -1047,20 +1169,21 @@ Status: `500 Internal Server Error`
 Replaces a user's IE Baseline module assignments with the provided module ID set.
 The API deduplicates `module_ids` and returns all module ID arrays sorted ascending.
 
-Authentication: no authentication is currently required.
+Authorization: requires `current_user_id` with access to `/iebaseline/assign`.
 
 ### Request
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `user_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | JSON object |
 
 ### Example Request
 
 ```http
-PUT /api/iebaseline/users/1/modules
+PUT /api/iebaseline/users/1/modules?current_user_id=5
 Content-Type: application/json
 ```
 
@@ -1166,14 +1289,15 @@ be treated as legacy for new frontend work.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `module_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules/3/questions
+GET /api/iebaseline/modules/3/questions?current_user_id=1
 ```
 
 ### Expected Backend Behavior
@@ -1260,12 +1384,13 @@ that point, before any answer is selected.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved learner query/body required |
 | Path parameter | `module_id`, required integer |
 | Request body | JSON object with `userId` |
 
-Because the backend currently has no authentication/session layer, the learner
-user ID must be supplied by the caller.
+The learner user ID is the resolved IE Baseline actor. The backend checks that
+the actor can view `/iebaseline/module/:moduleId`, then separately checks that
+the learner is assigned to the requested module.
 
 ### Example Request
 
@@ -1374,14 +1499,15 @@ or backfill bug, not as normal unanswered state.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `attempt_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Example Request
 
 ```http
-GET /api/iebaseline/attempts/15/questions
+GET /api/iebaseline/attempts/15/questions?current_user_id=1
 ```
 
 ### Success Response
@@ -1480,9 +1606,10 @@ when **Finish Checklist** saves the final answer before submit.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `attempt_id`, required integer |
 | Path parameter | `question_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | JSON object with `selectedAnswer` |
 
 The backend trims whitespace from `selectedAnswer`. `null`, empty, or
@@ -1490,6 +1617,8 @@ whitespace-only values are treated as not answered.
 
 ### Backend Behavior
 
+* Validate that `current_user_id` has access to `/iebaseline/module/:moduleId`.
+* Validate that `current_user_id` owns the attempt.
 * Validate that the attempt exists and is still editable.
 * Validate that the question belongs to the attempt's module.
 * Locate the existing `user_exam_answer` shell by `(attempt_id, question_id)`.
@@ -1505,7 +1634,7 @@ whitespace-only values are treated as not answered.
 ### Example Request
 
 ```http
-PUT /api/iebaseline/attempts/15/questions/25/answer
+PUT /api/iebaseline/attempts/15/questions/25/answer?current_user_id=1
 Content-Type: application/json
 ```
 
@@ -1562,9 +1691,10 @@ Clears one saved answer for an in-progress attempt.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `attempt_id`, required integer |
 | Path parameter | `question_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 ### Success Response
@@ -1572,6 +1702,12 @@ Clears one saved answer for an in-progress attempt.
 Status: `200 OK`
 
 The response shape is the same as save answer.
+
+### Example Request
+
+```http
+DELETE /api/iebaseline/attempts/15/questions/25/answer?current_user_id=1
+```
 
 ```json
 {
@@ -1613,9 +1749,23 @@ frontend should return to.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `attempt_id`, required integer |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
+
+### Example Request
+
+```http
+POST /api/iebaseline/attempts/15/submit?current_user_id=1
+```
+
+### Backend Behavior
+
+* Validate that `current_user_id` has access to `/iebaseline/module/:moduleId`.
+* Validate that `current_user_id` owns the attempt.
+* Reject attempts that are no longer `In Progress`.
+* Reject unanswered shells before required attachment validation.
 
 ### Success Response
 
@@ -1888,7 +2038,7 @@ The backend now returns attempts in compatible order:
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved learner query required |
 | Path parameter | `module_id`, required integer |
 | Query parameter | `user_id`, required integer |
 | Request body | None |
@@ -1898,6 +2048,9 @@ The backend now returns attempts in compatible order:
 ```http
 GET /api/iebaseline/modules/3/attempts?user_id=1
 ```
+
+The `user_id` query value is the resolved IE Baseline actor. The backend checks
+that the actor can view `/iebaseline/module/:moduleId/results`.
 
 ### Success Response
 
@@ -1932,6 +2085,8 @@ Approval APIs use the current IE Baseline identity contract. The frontend first
 resolves or creates a `user_master` record using the current user's email, then
 passes the resolved user ID to these endpoints. Learner APIs use `user_id`.
 Reviewer APIs use `approver_user_id`, `reviewer_user_id`, or `reviewerUserId`.
+The backend checks those actor IDs against route-level RBAC before loading or
+mutating approval data.
 
 Scores are hidden while approval status is `PENDING` or `IN_PROGRESS`. Scores
 are returned after `APPROVED`, `REJECTED`, or `CANCELLED`.
@@ -1944,7 +2099,7 @@ Lists approval requests for attempts submitted by one learner.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; resolved user query required |
+| Authentication | Main application authentication; resolved user query required |
 | Query parameter | `user_id`, required integer |
 | Request body | None |
 
@@ -1992,7 +2147,7 @@ Lists approval requests assigned to one reviewer.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; resolved approver query required |
+| Authentication | Main application authentication; resolved approver query required |
 | Query parameter | `approver_user_id`, required integer |
 | Query parameter | `status`, optional one of `PENDING`, `IN_PROGRESS`, `APPROVED`, `REJECTED`, `CANCELLED` |
 | Request body | None |
@@ -2013,7 +2168,7 @@ Marks a pending approval as actively being reviewed.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; reviewer body field required |
+| Authentication | Main application authentication; reviewer body field required |
 | Path parameter | `approval_id`, required integer |
 | Request body | JSON object with `reviewerUserId` |
 
@@ -2051,7 +2206,7 @@ using the existing review question response shape.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; reviewer query required |
+| Authentication | Main application authentication; reviewer query required |
 | Path parameter | `approval_id`, required integer |
 | Query parameter | `reviewer_user_id`, required integer |
 | Request body | None |
@@ -2085,7 +2240,7 @@ it to `IN_PROGRESS`.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; reviewer body field required |
+| Authentication | Main application authentication; reviewer body field required |
 | Path parameter | `approval_id`, required integer |
 | Path parameter | `answer_id`, required integer |
 | Request body | JSON object with `reviewerUserId` and `selectedAnswer` |
@@ -2128,7 +2283,7 @@ remarks, and releases the final score.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; reviewer body field required |
+| Authentication | Main application authentication; reviewer body field required |
 | Path parameter | `approval_id`, required integer |
 | Request body | JSON object with `reviewerUserId`, `decision`, and optional `remarks` |
 
@@ -2210,10 +2365,10 @@ Module attachments are stored on the backend machine under the `.env`
 The physical stored filename is derived from PostgreSQL's generated
 `attachment_unq_id`, using `{attachmentUnqId}{fileExtension}`.
 
-Authentication is not implemented yet. Until it exists, upload requests send
-`uploadedBy` in `FormData`, and list/download/delete requests send `user_id` as
-a query parameter. The backend allows access only when `user_checklist_status`
-links that user to the module.
+The parent application owns authentication. Attachment APIs use the resolved IE
+Baseline actor from `uploadedBy` or `user_id`. The backend checks route-level
+RBAC and also allows access only when `user_checklist_status` links that user to
+the module.
 
 Allowed filename extensions:
 
@@ -2238,7 +2393,7 @@ Uploads one attachment for a module.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; temporary uploader field required |
+| Authentication | Main application authentication; uploader field required |
 | Path parameter | `module_id`, required integer |
 | Request body | `multipart/form-data` |
 | Required form field | `file`, uploaded file |
@@ -2295,7 +2450,7 @@ Lists attachments for one module.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; temporary user query required |
+| Authentication | Main application authentication; resolved user query required |
 | Path parameter | `module_id`, required integer |
 | Query parameter | `user_id`, required integer |
 | Query parameter | `answer_id`, optional integer filter |
@@ -2340,7 +2495,7 @@ Downloads one attachment through the backend.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; temporary user query required |
+| Authentication | Main application authentication; resolved user query required |
 | Path parameter | `attachment_unq_id`, required UUID |
 | Query parameter | `user_id`, required integer |
 | Request body | None |
@@ -2363,7 +2518,7 @@ to any module, the backend also removes the metadata row and local file.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required; temporary user query required |
+| Authentication | Main application authentication; resolved user query required |
 | Path parameter | `module_id`, required integer |
 | Path parameter | `attachment_unq_id`, required UUID |
 | Query parameter | `user_id`, required integer |
@@ -2423,8 +2578,9 @@ Results are ordered by `question_no` and then `id`.
 
 | Item | Value |
 | --- | --- |
-| Authentication | None required |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
 | Path parameter | `moduleName`, required string |
+| Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
 `moduleName` is the module name to search for, such as `Order to Cash`.
@@ -2432,7 +2588,7 @@ Results are ordered by `question_no` and then `id`.
 ### Example Request
 
 ```http
-GET /api/iebaseline/modules/Order%20to%20Cash/questions
+GET /api/iebaseline/modules/Order%20to%20Cash/questions?current_user_id=1
 ```
 
 ### Success Response

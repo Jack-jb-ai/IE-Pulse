@@ -49,12 +49,12 @@ import {
   type IEBaselineUserPayload,
   type IEBaselineUserProfile,
 } from './api';
+import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
 const FALLBACK_ROLES: IEBaselineRole[] = [
   { role_id: 1, role_name: 'user' },
   { role_id: 2, role_name: 'admin' },
   { role_id: 3, role_name: 'dev' },
-  { role_id: 4, role_name: 'dev/admin' },
 ];
 
 interface UserFormState {
@@ -79,9 +79,15 @@ const emptyForm: UserFormState = {
 
 export default function UserManagement() {
   const queryClient = useQueryClient();
+  const {
+    ieBaselineUserId,
+    isLoading: isResolvingCurrentUser,
+    error: currentUserResolveError,
+  } = useIEBaselineCurrentUser();
   const rolesQuery = useQuery({
-    queryKey: ['iebaseline', 'roles'],
-    queryFn: ieBaselineApi.roles.list,
+    queryKey: ['iebaseline', 'roles', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.roles.list(ieBaselineUserId!),
+    enabled: Boolean(ieBaselineUserId),
     retry: false,
   });
 
@@ -106,7 +112,7 @@ export default function UserManagement() {
             Create, update, and remove IE Baseline users from user_master.
           </p>
         </div>
-        {rolesQuery.isError && (
+        {(rolesQuery.isError || currentUserResolveError) && (
           <Badge variant="outline" className="w-fit text-amber-600 border-amber-500/30 bg-amber-500/10">
             Using default roles
           </Badge>
@@ -130,22 +136,30 @@ export default function UserManagement() {
         </TabsList>
 
         <TabsContent value="create">
-          <CreateUserPanel roles={roles} onUsersChanged={invalidateUsers} />
+          <CreateUserPanel roles={roles} currentUserId={ieBaselineUserId} onUsersChanged={invalidateUsers} />
         </TabsContent>
 
         <TabsContent value="update">
-          <UpdateUserPanel roles={roles} onUsersChanged={invalidateUsers} />
+          <UpdateUserPanel roles={roles} currentUserId={ieBaselineUserId} isResolvingCurrentUser={isResolvingCurrentUser} onUsersChanged={invalidateUsers} />
         </TabsContent>
 
         <TabsContent value="delete">
-          <DeleteUserPanel onUsersChanged={invalidateUsers} />
+          <DeleteUserPanel currentUserId={ieBaselineUserId} isResolvingCurrentUser={isResolvingCurrentUser} onUsersChanged={invalidateUsers} />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function CreateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; onUsersChanged: () => Promise<void> }) {
+function CreateUserPanel({
+  roles,
+  currentUserId,
+  onUsersChanged,
+}: {
+  roles: IEBaselineRole[];
+  currentUserId: number | null;
+  onUsersChanged: () => Promise<void>;
+}) {
   const [form, setForm] = useState<UserFormState>(emptyForm);
   const [manager, setManager] = useState<IEBaselineUserProfile | null>(null);
 
@@ -174,6 +188,7 @@ function CreateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
         roles={roles}
         manager={manager}
         managerExcludeUserId={null}
+        currentUserId={currentUserId}
         isSaving={createMutation.isPending}
         submitLabel="Create user"
         onChange={setForm}
@@ -192,15 +207,25 @@ function CreateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
   );
 }
 
-function UpdateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; onUsersChanged: () => Promise<void> }) {
+function UpdateUserPanel({
+  roles,
+  currentUserId,
+  isResolvingCurrentUser,
+  onUsersChanged,
+}: {
+  roles: IEBaselineRole[];
+  currentUserId: number | null;
+  isResolvingCurrentUser: boolean;
+  onUsersChanged: () => Promise<void>;
+}) {
   const [selectedUser, setSelectedUser] = useState<IEBaselineUserProfile | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm);
   const [manager, setManager] = useState<IEBaselineUserProfile | null>(null);
 
   const userQuery = useQuery({
-    queryKey: ['iebaseline', 'users', selectedUser?.user_id],
-    queryFn: () => ieBaselineApi.users.get(selectedUser!.user_id),
-    enabled: Boolean(selectedUser),
+    queryKey: ['iebaseline', 'users', selectedUser?.user_id, currentUserId],
+    queryFn: () => ieBaselineApi.users.get(selectedUser!.user_id, currentUserId!),
+    enabled: Boolean(selectedUser && currentUserId),
   });
 
   useEffect(() => {
@@ -223,7 +248,10 @@ function UpdateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
   }, [userQuery.data]);
 
   const updateMutation = useMutation({
-    mutationFn: () => ieBaselineApi.users.update(selectedUser!.user_id, toPayload(form)),
+    mutationFn: () => {
+      if (!currentUserId) throw new Error('Current IE Baseline user is not resolved yet.');
+      return ieBaselineApi.users.update(selectedUser!.user_id, toPayload(form), currentUserId);
+    },
     onSuccess: async (user) => {
       setSelectedUser(user);
       setForm(fromProfile(user));
@@ -236,7 +264,7 @@ function UpdateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
     onError: showUserMutationError('Unable to update user'),
   });
 
-  const canSubmit = Boolean(selectedUser) && form.name.trim().length > 0 && !updateMutation.isPending && !userQuery.isLoading;
+  const canSubmit = Boolean(selectedUser && currentUserId) && form.name.trim().length > 0 && !updateMutation.isPending && !userQuery.isLoading;
 
   return (
     <div className="space-y-4">
@@ -246,6 +274,7 @@ function UpdateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
           <UserSearchCombobox
             value={selectedUser}
             placeholder="Search by name, WD ID, or email"
+            currentUserId={currentUserId}
             onChange={setSelectedUser}
           />
         </div>
@@ -253,7 +282,7 @@ function UpdateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
 
       {selectedUser && (
         <Card className="border-border/50 bg-background/40 backdrop-blur-sm p-6">
-          {userQuery.isLoading ? (
+          {isResolvingCurrentUser || userQuery.isLoading ? (
             <LoadingState label="Loading user profile..." />
           ) : userQuery.isError ? (
             <ErrorState title="Unable to load user profile" error={userQuery.error} />
@@ -265,6 +294,7 @@ function UpdateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
               roles={roles}
               manager={manager}
               managerExcludeUserId={selectedUser.user_id}
+              currentUserId={currentUserId}
               isSaving={updateMutation.isPending}
               submitLabel="Save changes"
               onChange={setForm}
@@ -301,17 +331,28 @@ function UpdateUserPanel({ roles, onUsersChanged }: { roles: IEBaselineRole[]; o
   );
 }
 
-function DeleteUserPanel({ onUsersChanged }: { onUsersChanged: () => Promise<void> }) {
+function DeleteUserPanel({
+  currentUserId,
+  isResolvingCurrentUser,
+  onUsersChanged,
+}: {
+  currentUserId: number | null;
+  isResolvingCurrentUser: boolean;
+  onUsersChanged: () => Promise<void>;
+}) {
   const [selectedUser, setSelectedUser] = useState<IEBaselineUserProfile | null>(null);
   const deletePreviewQuery = useQuery({
-    queryKey: ['iebaseline', 'users', selectedUser?.user_id, 'delete-preview'],
-    queryFn: () => ieBaselineApi.users.deletePreview(selectedUser!.user_id),
-    enabled: Boolean(selectedUser),
+    queryKey: ['iebaseline', 'users', selectedUser?.user_id, 'delete-preview', currentUserId],
+    queryFn: () => ieBaselineApi.users.deletePreview(selectedUser!.user_id, currentUserId!),
+    enabled: Boolean(selectedUser && currentUserId),
     retry: false,
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => ieBaselineApi.users.remove(selectedUser!.user_id),
+    mutationFn: () => {
+      if (!currentUserId) throw new Error('Current IE Baseline user is not resolved yet.');
+      return ieBaselineApi.users.remove(selectedUser!.user_id, currentUserId);
+    },
     onSuccess: async (data) => {
       setSelectedUser(null);
       await onUsersChanged();
@@ -331,6 +372,7 @@ function DeleteUserPanel({ onUsersChanged }: { onUsersChanged: () => Promise<voi
           <UserSearchCombobox
             value={selectedUser}
             placeholder="Search by name, WD ID, or email"
+            currentUserId={currentUserId}
             onChange={setSelectedUser}
           />
         </div>
@@ -351,7 +393,7 @@ function DeleteUserPanel({ onUsersChanged }: { onUsersChanged: () => Promise<voi
                   variant="destructive"
                   size="sm"
                   className="gap-2"
-                  disabled={deleteMutation.isPending}
+                  disabled={deleteMutation.isPending || !currentUserId}
                 >
                   <Trash2 className="h-4 w-4" />
                   Delete user
@@ -364,12 +406,12 @@ function DeleteUserPanel({ onUsersChanged }: { onUsersChanged: () => Promise<voi
                     This permanently removes the user record. The backend may block deletion when related records exist.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
-                <DeletePreview preview={deletePreviewQuery.data} isLoading={deletePreviewQuery.isLoading} />
+                <DeletePreview preview={deletePreviewQuery.data} isLoading={deletePreviewQuery.isLoading || isResolvingCurrentUser} />
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    disabled={deleteMutation.isPending}
+                    disabled={deleteMutation.isPending || !currentUserId}
                     onClick={() => deleteMutation.mutate()}
                   >
                     {deleteMutation.isPending ? 'Deleting...' : 'Confirm delete'}
@@ -379,7 +421,7 @@ function DeleteUserPanel({ onUsersChanged }: { onUsersChanged: () => Promise<voi
             </AlertDialog>
           </div>
 
-          {deletePreviewQuery.isLoading && <LoadingState label="Checking related records..." />}
+          {(isResolvingCurrentUser || deletePreviewQuery.isLoading) && <LoadingState label="Checking related records..." />}
           {deletePreviewQuery.isError && (
             <div className="p-4">
               <ErrorState title="Unable to load delete preview" error={deletePreviewQuery.error} />
@@ -403,6 +445,7 @@ function UserForm({
   roles,
   manager,
   managerExcludeUserId,
+  currentUserId,
   isSaving,
   submitLabel,
   canSubmit,
@@ -417,6 +460,7 @@ function UserForm({
   roles: IEBaselineRole[];
   manager: IEBaselineUserProfile | null;
   managerExcludeUserId: number | null;
+  currentUserId: number | null;
   isSaving: boolean;
   submitLabel: string;
   canSubmit: boolean;
@@ -488,6 +532,7 @@ function UserForm({
               value={manager}
               placeholder="Search manager by name, WD ID, or email"
               excludeUserId={managerExcludeUserId}
+              currentUserId={currentUserId}
               onChange={onManagerChange}
               allowClear
             />
@@ -514,21 +559,23 @@ function UserSearchCombobox({
   value,
   placeholder,
   excludeUserId,
+  currentUserId,
   allowClear,
   onChange,
 }: {
   value: IEBaselineUserProfile | null;
   placeholder: string;
   excludeUserId?: number | null;
+  currentUserId: number | null;
   allowClear?: boolean;
   onChange: (user: IEBaselineUserProfile | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const usersQuery = useQuery({
-    queryKey: ['iebaseline', 'user-search', search, excludeUserId ?? null],
-    queryFn: () => ieBaselineApi.users.search(search, { limit: 25, excludeUserId }),
-    enabled: open,
+    queryKey: ['iebaseline', 'user-search', search, excludeUserId ?? null, currentUserId],
+    queryFn: () => ieBaselineApi.users.search(search, { limit: 25, excludeUserId }, currentUserId!),
+    enabled: open && Boolean(currentUserId),
   });
 
   const users = usersQuery.data ?? [];
@@ -542,6 +589,7 @@ function UserSearchCombobox({
           role="combobox"
           aria-expanded={open}
           className="w-full justify-between gap-2 font-normal"
+          disabled={!currentUserId}
         >
           <span className={cn('truncate', !value && 'text-muted-foreground')}>
             {value ? formatUserLabel(value) : placeholder}

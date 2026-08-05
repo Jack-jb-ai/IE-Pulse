@@ -35,19 +35,21 @@ export default function AssignModules() {
   } = useIEBaselineCurrentUser();
 
   const usersQuery = useQuery({
-    queryKey: ['iebaseline', 'users'],
-    queryFn: ieBaselineApi.users.list,
+    queryKey: ['iebaseline', 'users', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.users.list(ieBaselineUserId!),
+    enabled: Boolean(ieBaselineUserId),
   });
 
   const modulesQuery = useQuery({
-    queryKey: ['iebaseline', 'modules'],
-    queryFn: ieBaselineApi.modules.list,
+    queryKey: ['iebaseline', 'modules', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.modules.list(ieBaselineUserId!),
+    enabled: Boolean(ieBaselineUserId),
   });
 
   const userModulesQuery = useQuery({
-    queryKey: ['iebaseline', 'users', selectedUser?.user_id, 'modules'],
-    queryFn: () => ieBaselineApi.users.modules.get(selectedUser!.user_id),
-    enabled: Boolean(selectedUser),
+    queryKey: ['iebaseline', 'users', selectedUser?.user_id, 'modules', ieBaselineUserId],
+    queryFn: () => ieBaselineApi.users.modules.get(selectedUser!.user_id, ieBaselineUserId!),
+    enabled: Boolean(selectedUser && ieBaselineUserId),
   });
 
   useEffect(() => {
@@ -80,7 +82,7 @@ export default function AssignModules() {
       return ieBaselineApi.users.modules.update(selectedUser!.user_id, {
         module_ids: Array.from(draftModuleIds).sort((a, b) => a - b),
         assignee_id: ieBaselineUserId,
-      });
+      }, ieBaselineUserId);
     },
     onSuccess: async (data) => {
       setDraftModuleIds(new Set(data.assigned_module_ids));

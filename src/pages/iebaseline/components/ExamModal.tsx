@@ -99,8 +99,8 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
     isError: isQuestionsError,
     error: questionsError,
   } = useQuery({
-    queryKey: ['iebaseline', 'attempts', attemptId, 'questions'],
-    queryFn: () => ieBaselineApi.attempts.questions.get(attemptId!),
+    queryKey: ['iebaseline', 'attempts', attemptId, 'questions', userId],
+    queryFn: () => ieBaselineApi.attempts.questions.get(attemptId!, userId),
     enabled: Boolean(attemptId) && !isApprovalReview,
     refetchOnWindowFocus: false,
   });
@@ -131,10 +131,10 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
       if (reviewOnly) throw new Error('Completed attempts are read-only.');
 
       if (selectedAnswer === null) {
-        return ieBaselineApi.attempts.questions.clearAnswer(attemptId, questionId);
+        return ieBaselineApi.attempts.questions.clearAnswer(attemptId, questionId, userId);
       }
 
-      return ieBaselineApi.attempts.questions.saveAnswer(attemptId, questionId, { selectedAnswer });
+      return ieBaselineApi.attempts.questions.saveAnswer(attemptId, questionId, { selectedAnswer }, userId);
     },
     onMutate: (variables) => {
       setLastSaveRequest(variables);
@@ -153,7 +153,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
       });
       const queryKey = isApprovalReview
         ? ['iebaseline', 'approvals', approvalId, 'review', userId]
-        : ['iebaseline', 'attempts', attemptId, 'questions'];
+        : ['iebaseline', 'attempts', attemptId, 'questions', userId];
       queryClient.setQueryData(queryKey, (current: typeof attemptQuestionsData | typeof approvalReviewData | undefined) => {
         if (!current) return current;
 
@@ -190,7 +190,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   const submitAttemptMutation = useMutation({
     mutationFn: async () => {
       if (!attemptId) throw new Error('Attempt is not ready yet.');
-      return ieBaselineApi.attempts.submit(attemptId);
+      return ieBaselineApi.attempts.submit(attemptId, userId);
     },
     onSuccess: async (data) => {
       setProgress(data.progress);
@@ -210,7 +210,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active', userId], refetchType: 'none' }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions', userId] }),
       ]);
 
       onClose();
@@ -249,7 +249,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', data.attempt.moduleId, 'attempts'] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', data.attempt.attemptId] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', data.attempt.attemptId, 'questions'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', data.attempt.attemptId, 'questions', userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals', approvalId, 'review', userId] }),
       ]);
     },
@@ -308,7 +308,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', effectiveModuleId, 'attachments', currentAnswerId, userId] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions', userId] }),
       ]);
     },
     onError: (error) => {
@@ -330,7 +330,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', effectiveModuleId, 'attachments', currentAnswerId, userId] }),
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions', userId] }),
       ]);
     },
     onError: (error) => {

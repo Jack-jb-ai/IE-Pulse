@@ -160,6 +160,7 @@ VALUES
 
 * `role_name` is unique so the same role label cannot be inserted twice.
 * User records reference roles through `user_master.role_id`.
+* The deprecated `dev/admin` role is removed by `migrations/20260805_remove_dev_admin_role.sql`; existing users are reassigned to `dev`.
 
 ---
 
@@ -340,6 +341,45 @@ CREATE INDEX idx_user_master_reports_to
 
 CREATE INDEX idx_user_master_role_id
     ON user_master (role_id);
+```
+
+---
+
+## Remove Deprecated Dev/Admin Role Migration SQL
+
+Migration file: `migrations/20260805_remove_dev_admin_role.sql`
+
+```sql
+BEGIN;
+
+-- Reassign any existing dev/admin users to dev before removing the role.
+UPDATE user_master
+SET role_id = (
+    SELECT role_id
+    FROM role_master
+    WHERE role_name = 'dev'
+)
+WHERE role_id = (
+    SELECT role_id
+    FROM role_master
+    WHERE role_name = 'dev/admin'
+);
+
+-- Remove any module access rows tied to dev/admin.
+-- This may already cascade if the FK has ON DELETE CASCADE,
+-- but keeping it explicit makes the migration intent clear.
+DELETE FROM role_system_module_access
+WHERE role_id = (
+    SELECT role_id
+    FROM role_master
+    WHERE role_name = 'dev/admin'
+);
+
+-- Remove the deprecated role.
+DELETE FROM role_master
+WHERE role_name = 'dev/admin';
+
+COMMIT;
 ```
 
 ---
