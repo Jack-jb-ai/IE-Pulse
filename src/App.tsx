@@ -24,6 +24,7 @@ import FsmsPlants from "@/pages/fsms/FsmsPlants";
 import FsmsSubmissions from "@/pages/fsms/FsmsSubmissions";
 import GlobalOverview from "@/pages/GlobalOverview";
 import AssignModules from "@/pages/iebaseline/AssignModules";
+import { IEBaselineAccessGuard } from "@/pages/iebaseline/access";
 import Approvals, { ApprovalReviewRoute } from "@/pages/iebaseline/Approvals";
 import DeveloperDocs from "@/pages/iebaseline/DeveloperDocs";
 import FinalResults from "@/pages/iebaseline/FinalResults";
@@ -198,17 +199,17 @@ function AppShell() {
             </>}
 
             {includesApp('iebaseline') && <>
-              <Route path="/iebaseline" element={<IEBaseline />} />
-              <Route path="/iebaseline/edit" element={<IEBaselineEdit />} />
-              <Route path="/iebaseline/assign" element={<AssignModules />} />
-              <Route path="/iebaseline/approvals/my-submissions" element={<Approvals defaultTab="my-submissions" />} />
-              <Route path="/iebaseline/approvals/inbox" element={<Approvals defaultTab="inbox" />} />
-              <Route path="/iebaseline/approvals/:approvalId/review" element={<ApprovalReviewRoute />} />
-              <Route path="/iebaseline/users" element={<UserManagement />} />
-              <Route path="/iebaseline/developer-docs" element={<DeveloperDocs />} />
-              <Route path="/iebaseline/module/:moduleId/results" element={<FinalResults />} />
-              <Route path="/iebaseline/module/:moduleId" element={<ModuleOverview />} />
-              <Route path="/iebaseline/admin/:moduleId" element={<ModuleAdmin />} />
+              <Route path="/iebaseline" element={<GuardIEBaseline><IEBaseline /></GuardIEBaseline>} />
+              <Route path="/iebaseline/edit" element={<GuardIEBaseline><IEBaselineEdit /></GuardIEBaseline>} />
+              <Route path="/iebaseline/assign" element={<GuardIEBaseline><AssignModules /></GuardIEBaseline>} />
+              <Route path="/iebaseline/approvals/my-submissions" element={<GuardIEBaseline><Approvals defaultTab="my-submissions" /></GuardIEBaseline>} />
+              <Route path="/iebaseline/approvals/inbox" element={<GuardIEBaseline><Approvals defaultTab="inbox" /></GuardIEBaseline>} />
+              <Route path="/iebaseline/approvals/:approvalId/review" element={<GuardIEBaseline><ApprovalReviewRoute /></GuardIEBaseline>} />
+              <Route path="/iebaseline/users" element={<GuardIEBaseline><UserManagement /></GuardIEBaseline>} />
+              <Route path="/iebaseline/developer-docs" element={<GuardIEBaseline><DeveloperDocs /></GuardIEBaseline>} />
+              <Route path="/iebaseline/module/:moduleId/results" element={<GuardIEBaseline><FinalResults /></GuardIEBaseline>} />
+              <Route path="/iebaseline/module/:moduleId" element={<GuardIEBaseline><ModuleOverview /></GuardIEBaseline>} />
+              <Route path="/iebaseline/admin/:moduleId" element={<GuardIEBaseline><ModuleAdmin /></GuardIEBaseline>} />
             </>}
 
             <Route path="/settings" element={<Settings />} />
@@ -218,6 +219,10 @@ function AppShell() {
       </div>
     </div>
   );
+}
+
+function GuardIEBaseline({ children }: { children: React.ReactNode }) {
+  return <IEBaselineAccessGuard>{children}</IEBaselineAccessGuard>;
 }
 
 /** Sends `/` to the active app's first nav item (so each build lands on its own home). */

@@ -111,6 +111,22 @@ export interface IEBaselineResolveCurrentUserResponse {
   created: boolean;
 }
 
+export interface IEBaselineSystemModule {
+  system_module_id: number;
+  module_code: string;
+  module_name: string;
+  module_description: string | null;
+  route_path: string | null;
+  can_view: boolean;
+  is_active: boolean;
+}
+
+export interface IEBaselineSystemModulesResponse {
+  user_id: number;
+  role_id: number | null;
+  modules: IEBaselineSystemModule[];
+}
+
 export interface IEBaselineModule {
   module_id: number;
   module_name: string;
@@ -482,6 +498,10 @@ export const ieBaselineApi = {
           `/users/${encodeURIComponent(String(userId))}/modules`,
           payload,
       ),
+    },
+    systemModules: {
+      get: (userId: number) =>
+        get<IEBaselineSystemModulesResponse>(`/users/${encodeURIComponent(String(userId))}/system-modules`),
     },
   },
   roles: {

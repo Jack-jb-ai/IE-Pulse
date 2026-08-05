@@ -3,10 +3,12 @@ import { StatusDot } from '@/components/StatusIndicator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import type { NavItem } from '@/config/apps';
 import { useApp } from '@/context/AppContext';
 import { shortName, useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProductionSummary, useWorkcells } from '@/hooks/useMesData';
 import { cn } from '@/lib/utils';
+import { useIEBaselineRouteAccess } from '@/pages/iebaseline/access';
 import {
   ChevronDown,
   Factory, Moon, PanelLeftClose, PanelLeftOpen,
@@ -58,7 +60,9 @@ export default function Sidebar() {
 
       {/* ── Nav ── */}
       <nav className="flex-1 overflow-y-auto py-2 space-y-0.5">
-        {activeApp.navItems.map((item) => {
+        {activeApp.id === 'iebaseline' ? (
+          <IEBaselineSidebarItems items={activeApp.navItems} collapsed={collapsed} />
+        ) : activeApp.navItems.map((item) => {
           // Workcells gets special treatment — collapsible sub-items
           if (item.to === '/workcells' && !collapsed) {
             return (
@@ -206,6 +210,39 @@ export default function Sidebar() {
         })()}
       </div>
     </aside>
+  );
+}
+
+function IEBaselineSidebarItems({ items, collapsed }: { items: NavItem[]; collapsed: boolean }) {
+  const access = useIEBaselineRouteAccess();
+
+  if (access.isLoading) {
+    return (
+      <div className="space-y-1 px-2 py-1">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-8 rounded bg-sidebar-accent/40 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (access.error) return null;
+
+  return (
+    <>
+      {items
+        .filter((item) => access.canView(item.to))
+        .map((item) => (
+          <SidebarLink
+            key={item.to}
+            to={item.to}
+            icon={item.icon}
+            label={item.label}
+            collapsed={collapsed}
+            exact={item.exact !== false}
+          />
+        ))}
+    </>
   );
 }
 

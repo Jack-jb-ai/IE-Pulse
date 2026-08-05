@@ -11,16 +11,18 @@ function getUserIdOverride() {
   return Number.isInteger(value) && value > 0 ? value : null;
 }
 
-export function useIEBaselineCurrentUser() {
+export function useIEBaselineCurrentUser(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const { user, error: currentUserError } = useCurrentUser();
   const userIdOverride = getUserIdOverride();
 
   const missingEmailError = useMemo(() => {
+    if (!enabled) return null;
     if (userIdOverride) return null;
     if (!user) return null;
     if (user.email) return null;
     return new Error('IE Baseline requires your Jabil email from current-user lookup before it can resolve your learner profile.');
-  }, [user, userIdOverride]);
+  }, [enabled, user, userIdOverride]);
 
   const resolveQuery = useQuery({
     queryKey: ['iebaseline', 'current-user', user?.email],
@@ -33,18 +35,18 @@ export function useIEBaselineCurrentUser() {
         department: user.department,
       });
     },
-    enabled: !userIdOverride && Boolean(user?.email),
+    enabled: enabled && !userIdOverride && Boolean(user?.email),
     retry: false,
     refetchOnWindowFocus: false,
   });
 
-  const error = userIdOverride ? null : currentUserError ?? missingEmailError ?? resolveQuery.error ?? null;
+  const error = !enabled || userIdOverride ? null : currentUserError ?? missingEmailError ?? resolveQuery.error ?? null;
 
   return {
     user,
-    ieBaselineUser: resolveQuery.data ?? null,
-    ieBaselineUserId: userIdOverride ?? resolveQuery.data?.user_id ?? null,
-    isLoading: userIdOverride ? false : (!user && !currentUserError) || resolveQuery.isLoading,
+    ieBaselineUser: enabled ? resolveQuery.data ?? null : null,
+    ieBaselineUserId: enabled ? userIdOverride ?? resolveQuery.data?.user_id ?? null : null,
+    isLoading: enabled && !userIdOverride ? (!user && !currentUserError) || resolveQuery.isLoading : false,
     error,
   };
 }
