@@ -27,6 +27,12 @@ The database uses the following structures:
 * `role_master`
 
   * Stores the available application roles.
+* `system_module_master`
+
+  * Stores application modules or screens controlled by role access.
+* `role_system_module_access`
+
+  * Stores role-level visibility permissions for system modules.
 * `user_checklist_status`
 
   * Stores each user's checklist status for a module.
@@ -140,8 +146,7 @@ INSERT INTO role_master (role_name)
 VALUES
     ('user'),
     ('admin'),
-    ('dev'),
-    ('dev/admin');
+    ('dev');
 ```
 
 ### Columns
@@ -155,6 +160,141 @@ VALUES
 
 * `role_name` is unique so the same role label cannot be inserted twice.
 * User records reference roles through `user_master.role_id`.
+
+---
+
+## Table: `system_module_master`
+
+The `system_module_master` table stores the application modules or screens that can be controlled through role access.
+
+```sql
+CREATE TABLE system_module_master (
+    system_module_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    module_code VARCHAR(100) NOT NULL UNIQUE,
+    module_name VARCHAR(150) NOT NULL,
+    module_description TEXT,
+    route_path VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Columns
+
+| Column | Data Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `system_module_id` | `BIGINT` identity | Primary key | Internal unique identifier for the system module. |
+| `module_code` | `VARCHAR(100)` | Not null, unique | Stable application code for the module or screen. |
+| `module_name` | `VARCHAR(150)` | Not null | Display name for the module. |
+| `module_description` | `TEXT` | Nullable | Optional description of the module. |
+| `route_path` | `VARCHAR(255)` | Nullable | Frontend or API route associated with the module. |
+| `is_active` | `BOOLEAN` | Not null, default `TRUE` | Whether the module should be available for access checks. |
+| `created_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time when the module record was created. |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time when the module record was last updated. |
+
+### Notes
+
+* `module_code` is the stable value to use in seed data and application logic.
+* `is_active = false` should normally hide or disable access to the module even if a role has an access row.
+* Role visibility is granted through `role_system_module_access`.
+
+---
+
+## Table: `role_system_module_access`
+
+The `role_system_module_access` table grants role-level visibility to system modules.
+
+One row represents:
+
+```text
+One role
++
+One system module
++
+The role's access state for that module
+```
+
+```sql
+CREATE TABLE role_system_module_access (
+    role_id INTEGER NOT NULL,
+    system_module_id BIGINT NOT NULL,
+    can_view BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (role_id, system_module_id),
+
+    CONSTRAINT fk_role_system_module_access_role
+        FOREIGN KEY (role_id)
+        REFERENCES role_master(role_id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_role_system_module_access_system_module
+        FOREIGN KEY (system_module_id)
+        REFERENCES system_module_master(system_module_id)
+        ON DELETE CASCADE
+);
+```
+
+### Columns
+
+| Column | Data Type | Constraints | Description |
+| --- | --- | --- | --- |
+| `role_id` | `INTEGER` | Primary key, foreign key | Role receiving access. |
+| `system_module_id` | `BIGINT` | Primary key, foreign key | System module controlled by this access row. |
+| `can_view` | `BOOLEAN` | Not null, default `TRUE` | Whether the role can view the module. |
+| `created_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time when the access row was created. |
+| `updated_at` | `TIMESTAMPTZ` | Not null, default current timestamp | Time when the access row was last updated. |
+
+### Notes
+
+* The composite primary key prevents duplicate access rows for the same role and system module.
+* Deleting a role cascades its module access rows.
+* Deleting a system module cascades its role access rows.
+* Access checks should require both `role_system_module_access.can_view = true` and `system_module_master.is_active = true`.
+
+---
+
+## System Module Access Migration SQL
+
+Migration file: `migrations/20260731_system_module_access.sql`
+
+```sql
+CREATE TABLE system_module_master (
+    system_module_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    module_code VARCHAR(100) NOT NULL UNIQUE,
+    module_name VARCHAR(150) NOT NULL,
+    module_description TEXT,
+    route_path VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE role_system_module_access (
+    role_id INTEGER NOT NULL,
+    system_module_id BIGINT NOT NULL,
+    can_view BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (role_id, system_module_id),
+
+    CONSTRAINT fk_role_system_module_access_role
+        FOREIGN KEY (role_id)
+        REFERENCES role_master(role_id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_role_system_module_access_system_module
+        FOREIGN KEY (system_module_id)
+        REFERENCES system_module_master(system_module_id)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX idx_role_system_module_access_system_module_id
+    ON role_system_module_access(system_module_id);
+```
 
 ---
 
@@ -345,6 +485,25 @@ Behavior:
 
 ---
 
+### Role System Module Access
+
+```text
+role_master.role_id
+    -> role_system_module_access.role_id
+    -> system_module_master.system_module_id
+```
+
+The access rows identify which system modules a role can view.
+
+Behavior:
+
+* One role can be linked to many system modules.
+* One system module can be linked to many roles.
+* Deleting a role removes its system module access rows.
+* Deleting a system module removes the corresponding role access rows.
+
+---
+
 ### Checklist Assignee
 
 ```text
@@ -435,8 +594,32 @@ role_master
 role_id PK
 role_name
      |
-     | user_id
-     | assignee_id
+     | role_id
+     v
+role_system_module_access
+-------------------------
+role_id PK/FK
+system_module_id PK/FK
+can_view
+created_at
+updated_at
+     |
+     | system_module_id
+     v
+system_module_master
+--------------------
+system_module_id PK
+module_code
+module_name
+module_description
+route_path
+is_active
+created_at
+updated_at
+
+user_master
+     |
+     | user_id / assignee_id
      v
 user_checklist_status
 ---------------------
@@ -456,6 +639,8 @@ id PK
 module_name
 description
 owner_user_id FK
+approval_required
+scoring_metric_id FK
 migrated_by
 created_at
 updated_at
@@ -555,6 +740,8 @@ This table is the master list for baseline checklist modules. Each module name i
 | `module_name` | character varying | varchar | Required, unique module name |
 | `description` | text | text | Optional module description |
 | `owner_user_id` | bigint | int8 | Optional module owner, references `user_master.user_id` |
+| `approval_required` | boolean | bool | Whether submitted attempts require manual approval |
+| `scoring_metric_id` | bigint | int8 | Optional scoring metric, references `scoring_metric.scoring_metric_id` |
 | `migrated_by` | character varying | varchar | Optional migration owner or script/user name |
 | `created_at` | timestamp with time zone | timestamptz | Required, defaults to `CURRENT_TIMESTAMP` |
 | `updated_at` | timestamp with time zone | timestamptz | Required, defaults to `CURRENT_TIMESTAMP` |
@@ -566,11 +753,14 @@ This table is the master list for baseline checklist modules. Each module name i
 ```text
 module_master.id 1 ---- many baseline_checklist.module_id
 user_master.user_id 1 ---- many module_master.owner_user_id
+scoring_metric.scoring_metric_id 1 ---- many module_master.scoring_metric_id
 ```
 
 - `module_master.module_name` is unique and should represent the canonical module name.
 - `module_master.owner_user_id` is an optional foreign key to the user responsible for the module.
 - Deleting a referenced owner user sets `module_master.owner_user_id` to null.
+- `module_master.approval_required` controls whether submitted attempts should enter the approval workflow.
+- `module_master.scoring_metric_id` controls which answer options and score multipliers apply to the module.
 - `baseline_checklist.module_id` is the foreign key used for joins and referential integrity.
 - `baseline_checklist.module_name` may still exist for CSV/import compatibility, but new code should prefer joining through `module_id`.
 - The foreign key uses `ON UPDATE CASCADE`, so changes to `module_master.id` cascade to checklist rows.
