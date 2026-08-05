@@ -2,19 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Download, Eraser, FileText, Loader2, Paperclip, Save, Trash2, Trophy, Upload, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Download, Eraser, FileText, Loader2, Paperclip, Save, Trash2, Trophy, Upload, X, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import {
   IEBaselineApiError,
   ieBaselineApi,
   type IEBaselineAttachment,
+  type IEBaselineApprovalDecision,
   type IEBaselineAttempt,
   type IEBaselineAttemptAnswer,
   type IEBaselineAttemptQuestion,
@@ -28,11 +30,13 @@ interface ExamModalProps {
   userId: number;
   onClose: () => void;
   reviewOnly?: boolean;
+  approvalId?: number;
 }
 
-export default function ExamModal({ moduleId, moduleName, userId, onClose, reviewOnly = false }: ExamModalProps) {
+export default function ExamModal({ moduleId, moduleName, userId, onClose, reviewOnly = false, approvalId }: ExamModalProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const isApprovalReview = approvalId !== undefined;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [progress, setProgress] = useState<IEBaselineAttemptProgress | null>(null);
@@ -40,7 +44,9 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   const [lastSaveRequest, setLastSaveRequest] = useState<{ questionId: number; selectedAnswer: string | null } | null>(null);
   const [savedState, setSavedState] = useState<{ attemptId: number; lastSavedAt: string } | null>(null);
   const [submitValidation, setSubmitValidation] = useState<IEBaselineValidationDetail | null>(null);
+  const [remarks, setRemarks] = useState('');
   const initializedAttemptId = useRef<number | null>(null);
+  const startedApprovalId = useRef<number | null>(null);
 
   const {
     data: startData,
@@ -50,7 +56,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   } = useQuery({
     queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active', userId],
     queryFn: () => ieBaselineApi.modules.attempts.start(moduleId, userId),
-    enabled: !reviewOnly,
+    enabled: !reviewOnly && !isApprovalReview,
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -63,14 +69,29 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   } = useQuery({
     queryKey: ['iebaseline', 'modules', moduleId, 'attempts', userId],
     queryFn: () => ieBaselineApi.modules.attempts.list(moduleId, userId),
-    enabled: reviewOnly,
+    enabled: reviewOnly && !isApprovalReview,
     refetchOnWindowFocus: false,
     retry: false,
   });
 
   const reviewAttempt = useMemo(() => getLatestReviewAttempt(attemptHistory), [attemptHistory]);
-  const activeAttempt = reviewOnly ? reviewAttempt : startData?.attempt;
+  const {
+    data: approvalReviewData,
+    isLoading: isLoadingApprovalReview,
+    isError: isApprovalReviewError,
+    error: approvalReviewError,
+  } = useQuery({
+    queryKey: ['iebaseline', 'approvals', approvalId, 'review', userId],
+    queryFn: () => ieBaselineApi.approvals.getReview(approvalId!, userId),
+    enabled: isApprovalReview,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+
+  const activeAttempt = isApprovalReview ? approvalReviewData?.attempt : reviewOnly ? reviewAttempt : startData?.attempt;
   const attemptId = activeAttempt?.attemptId;
+  const approval = approvalReviewData?.approval;
+  const isTerminalApproval = approval?.status === 'APPROVED' || approval?.status === 'REJECTED' || approval?.status === 'CANCELLED';
 
   const {
     data: attemptQuestionsData,
@@ -80,13 +101,33 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   } = useQuery({
     queryKey: ['iebaseline', 'attempts', attemptId, 'questions'],
     queryFn: () => ieBaselineApi.attempts.questions.get(attemptId!),
-    enabled: Boolean(attemptId),
+    enabled: Boolean(attemptId) && !isApprovalReview,
     refetchOnWindowFocus: false,
+  });
+
+  const startApprovalMutation = useMutation({
+    mutationFn: () => {
+      if (!approvalId) throw new Error('Approval is not ready yet.');
+      return ieBaselineApi.approvals.start(approvalId, userId);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals', approvalId, 'review', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals', 'inbox', userId] }),
+      ]);
+    },
   });
 
   const saveAnswerMutation = useMutation({
     mutationFn: ({ questionId, selectedAnswer }: { questionId: number; selectedAnswer: string | null }) => {
       if (!attemptId) throw new Error('Attempt is not ready yet.');
+      if (isApprovalReview) {
+        if (!approvalId) throw new Error('Approval is not ready yet.');
+        if (isTerminalApproval) throw new Error('Completed approvals are read-only.');
+        const answerId = question?.answer.answerId;
+        if (!answerId) throw new Error('This question is missing its backend answer shell.');
+        return ieBaselineApi.approvals.updateAnswer(approvalId, answerId, userId, selectedAnswer);
+      }
       if (reviewOnly) throw new Error('Completed attempts are read-only.');
 
       if (selectedAnswer === null) {
@@ -110,7 +151,10 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
         progressPercentage: data.progressPercentage,
         lastSavedAt: data.lastSavedAt,
       });
-      queryClient.setQueryData(['iebaseline', 'attempts', attemptId, 'questions'], (current: typeof attemptQuestionsData | undefined) => {
+      const queryKey = isApprovalReview
+        ? ['iebaseline', 'approvals', approvalId, 'review', userId]
+        : ['iebaseline', 'attempts', attemptId, 'questions'];
+      queryClient.setQueryData(queryKey, (current: typeof attemptQuestionsData | typeof approvalReviewData | undefined) => {
         if (!current) return current;
 
         return {
@@ -151,11 +195,14 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
     onSuccess: async (data) => {
       setProgress(data.progress);
       const scoreText = formatScore(data.attempt.score);
+      const waitingForApproval = data.attempt.resultStatus === 'PENDING' || data.attempt.resultStatus === 'IN_PROGRESS';
       toast({
-        title: 'Checklist scored',
-        description: scoreText
-          ? `Your answers were scored. Score: ${scoreText}.`
-          : 'Your answers were submitted and scored.',
+        title: waitingForApproval ? 'Checklist submitted' : 'Checklist scored',
+        description: waitingForApproval
+          ? 'Your answers were submitted and are waiting for approval.'
+          : scoreText
+            ? `Your answers were scored. Score: ${scoreText}.`
+            : 'Your answers were submitted and scored.',
       });
 
       await Promise.all([
@@ -185,24 +232,59 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
     },
   });
 
-  const questions = attemptQuestionsData?.questions ?? [];
-  const attempt = attemptQuestionsData?.attempt ?? activeAttempt;
+  const decisionMutation = useMutation({
+    mutationFn: (decision: IEBaselineApprovalDecision) => {
+      if (!approvalId) throw new Error('Approval is not ready yet.');
+      return ieBaselineApi.approvals.decision(approvalId, userId, decision, remarks.trim() || undefined);
+    },
+    onSuccess: async (data) => {
+      setProgress(data.progress);
+      toast({
+        title: data.approval.status === 'APPROVED' ? 'Approval completed' : 'Submission rejected',
+        description: `Final status: ${data.attempt.resultStatus}. Score: ${formatScore(data.attempt.score) ?? 'Pending'}.`,
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', data.attempt.moduleId, 'attempts'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', data.attempt.attemptId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', data.attempt.attemptId, 'questions'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals', approvalId, 'review', userId] }),
+      ]);
+    },
+    onError: (error) => {
+      toast({
+        title: 'Unable to complete approval',
+        description: error instanceof Error ? error.message : 'Please check the approval status and try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const questionsData = isApprovalReview ? approvalReviewData : attemptQuestionsData;
+  const questions = questionsData?.questions ?? [];
+  const attempt = questionsData?.attempt ?? activeAttempt;
   const question = questions[currentIndex];
+  const effectiveModuleId = question?.moduleId ?? attempt?.moduleId ?? moduleId;
   const options = useMemo(() => parseOptions(question?.options), [question?.options]);
   const selectedOption = question ? answers[question.questionId] ?? '' : '';
   const answeredCount = questions.filter((item) => Boolean(answers[item.questionId])).length;
   const totalQuestions = progress?.totalQuestions ?? questions.length;
   const progressPct = totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0;
-  const isReviewMode = reviewOnly || (attempt ? attempt.attemptStatus !== 'In Progress' : false);
-  const isLoading = (reviewOnly ? isLoadingHistory : isStarting) || isLoadingQuestions;
-  const isError = (reviewOnly ? isHistoryError : isStartError) || isQuestionsError;
-  const error = (reviewOnly ? historyError : startError) ?? questionsError;
-  const isBusy = saveAnswerMutation.isPending || submitAttemptMutation.isPending;
-  const isMissingAnswerShell = Boolean(question && !isReviewMode && question.answer.answerId === null);
+  const canEditAnswers = isApprovalReview
+    ? !isTerminalApproval
+    : !reviewOnly && (attempt ? attempt.attemptStatus === 'In Progress' : true);
+  const isReviewMode = !canEditAnswers;
+  const isLoading = isApprovalReview ? isLoadingApprovalReview : (reviewOnly ? isLoadingHistory : isStarting) || isLoadingQuestions;
+  const isError = isApprovalReview ? isApprovalReviewError : (reviewOnly ? isHistoryError : isStartError) || isQuestionsError;
+  const error = isApprovalReview ? approvalReviewError : (reviewOnly ? historyError : startError) ?? questionsError;
+  const isBusy = saveAnswerMutation.isPending || submitAttemptMutation.isPending || decisionMutation.isPending || startApprovalMutation.isPending;
+  const isMissingAnswerShell = Boolean(question && canEditAnswers && question.answer.answerId === null);
   const hasAttachmentSection = question?.attachmentRequirement === 'required' || question?.attachmentRequirement === 'optional';
   const currentAnswerId = question?.answer.answerId ?? null;
   const canSubmit = totalQuestions > 0 && answeredCount >= totalQuestions;
-  const requiresAnswerToContinue = !isReviewMode && options.length > 0;
+  const requiresAnswerToContinue = canEditAnswers && !isApprovalReview && options.length > 0;
 
   const {
     data: attachmentData,
@@ -210,22 +292,22 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
     isError: isAttachmentsError,
     error: attachmentsError,
   } = useQuery({
-    queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId, userId],
-    queryFn: () => ieBaselineApi.modules.attachments.list(moduleId, currentAnswerId!, userId),
+    queryKey: ['iebaseline', 'modules', effectiveModuleId, 'attachments', currentAnswerId, userId],
+    queryFn: () => ieBaselineApi.modules.attachments.list(effectiveModuleId, currentAnswerId!, userId),
     enabled: Boolean(hasAttachmentSection && currentAnswerId),
     refetchOnWindowFocus: false,
   });
 
   const uploadAttachmentMutation = useMutation({
     mutationFn: ({ answerId, file }: { answerId: number; file: File }) =>
-      ieBaselineApi.modules.attachments.upload(moduleId, answerId, file, userId),
+      ieBaselineApi.modules.attachments.upload(effectiveModuleId, answerId, file, userId),
     onSuccess: async () => {
       toast({
         title: 'Attachment uploaded',
         description: 'The evidence file was linked to this answer.',
       });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId, userId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', effectiveModuleId, 'attachments', currentAnswerId, userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
       ]);
     },
@@ -240,14 +322,14 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
 
   const deleteAttachmentMutation = useMutation({
     mutationFn: (attachmentUnqId: string) =>
-      ieBaselineApi.modules.attachments.remove(moduleId, attachmentUnqId, userId),
+      ieBaselineApi.modules.attachments.remove(effectiveModuleId, attachmentUnqId, userId),
     onSuccess: async () => {
       toast({
         title: 'Attachment removed',
         description: 'The evidence file was removed from this answer.',
       });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attachments', currentAnswerId, userId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', effectiveModuleId, 'attachments', currentAnswerId, userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions'] }),
       ]);
     },
@@ -263,36 +345,44 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   const isAttachmentBusy = uploadAttachmentMutation.isPending || deleteAttachmentMutation.isPending;
 
   useEffect(() => {
-    if (!attemptQuestionsData || initializedAttemptId.current === attemptQuestionsData.attempt.attemptId) return;
+    if (!questionsData || initializedAttemptId.current === questionsData.attempt.attemptId) return;
 
-    const savedAnswers = attemptQuestionsData.questions.reduce<Record<number, string>>((current, item) => {
+    const savedAnswers = questionsData.questions.reduce<Record<number, string>>((current, item) => {
       if (item.answer.isAnswered && item.answer.selectedAnswer) {
         current[item.questionId] = item.answer.selectedAnswer;
       }
       return current;
     }, {});
 
-    const firstUnansweredIndex = attemptQuestionsData.questions.findIndex((item) => !item.answer.isAnswered);
-    const hasSavedAnswer = attemptQuestionsData.questions.some((item) => item.answer.isAnswered && item.answer.lastSavedAt);
+    const firstUnansweredIndex = questionsData.questions.findIndex((item) => !item.answer.isAnswered);
+    const hasSavedAnswer = questionsData.questions.some((item) => item.answer.isAnswered && item.answer.lastSavedAt);
 
     setAnswers(savedAnswers);
-    setProgress(attemptQuestionsData.progress);
+    setProgress(questionsData.progress);
     setSaveError(null);
     setLastSaveRequest(null);
+    setRemarks(isApprovalReview ? questionsData.approval.remarks ?? '' : '');
     setSavedState(
-      attemptQuestionsData.progress.lastSavedAt && hasSavedAnswer
+      questionsData.progress.lastSavedAt && hasSavedAnswer
         ? {
-            attemptId: attemptQuestionsData.attempt.attemptId,
-            lastSavedAt: attemptQuestionsData.progress.lastSavedAt,
+            attemptId: questionsData.attempt.attemptId,
+            lastSavedAt: questionsData.progress.lastSavedAt,
           }
         : null,
     );
     setCurrentIndex(firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0);
-    initializedAttemptId.current = attemptQuestionsData.attempt.attemptId;
-  }, [attemptQuestionsData]);
+    initializedAttemptId.current = questionsData.attempt.attemptId;
+  }, [questionsData, isApprovalReview]);
+
+  useEffect(() => {
+    if (!isApprovalReview || !approvalId || approval?.status !== 'PENDING') return;
+    if (startedApprovalId.current === approvalId) return;
+    startedApprovalId.current = approvalId;
+    startApprovalMutation.mutate();
+  }, [approval?.status, approvalId, isApprovalReview]);
 
   const setSelectedOption = (value: string) => {
-    if (!question || isReviewMode || isMissingAnswerShell) return;
+    if (!question || !canEditAnswers || isMissingAnswerShell) return;
     setAnswers((current) => ({
       ...current,
       [question.questionId]: value,
@@ -303,7 +393,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   };
 
   const clearSelectedOption = () => {
-    if (!question || !selectedOption || isReviewMode || isMissingAnswerShell) return;
+    if (!question || !selectedOption || !canEditAnswers || isMissingAnswerShell) return;
 
     setAnswers((current) => {
       const next = { ...current };
@@ -316,7 +406,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   };
 
   const persistCurrentAnswer = async () => {
-    if (!question || !attemptId || isReviewMode) return;
+    if (!question || !attemptId || !canEditAnswers) return;
     if (question.answer.answerId === null) {
       setSaveError('This question is missing its backend answer shell. Please close and reopen the checklist, then try again.');
       throw new Error('Answer shell is missing.');
@@ -343,7 +433,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
       return;
     }
 
-    if (isReviewMode) return;
+    if (isReviewMode || isApprovalReview) return;
     submitAttemptMutation.mutate();
   };
 
@@ -489,13 +579,13 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
                     <div className="space-y-4">
                       <div className="flex items-center justify-between gap-4">
                         <div>
-                          <h3 className="text-lg font-bold text-foreground">{isReviewMode ? 'Review Response' : 'Select Response'}</h3>
+                          <h3 className="text-lg font-bold text-foreground">{isApprovalReview ? 'Approver Response' : isReviewMode ? 'Review Response' : 'Select Response'}</h3>
                           <p className="text-sm text-muted-foreground">
                             {answeredCount} of {totalQuestions} answered
                           </p>
                         </div>
                         <div className="flex items-center gap-3">
-                          {!isReviewMode && renderSaveState()}
+                          {canEditAnswers && renderSaveState()}
                           {selectedOption && <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />}
                         </div>
                       </div>
@@ -504,7 +594,16 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
                         <ScoreSummary attempt={attempt} />
                       )}
 
-                      {!isReviewMode && saveError && (
+                      {isApprovalReview && approval && (
+                        <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <span className="font-medium text-muted-foreground">Approval status</span>
+                            <Badge variant="outline" className={getApprovalStatusClass(approval.status)}>{approval.status}</Badge>
+                          </div>
+                        </div>
+                      )}
+
+                      {canEditAnswers && saveError && (
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                           <span>{saveError}</span>
                           <Button
@@ -529,16 +628,16 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
                       )}
 
                       {options.length > 0 ? (
-                        <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={isReviewMode || isMissingAnswerShell || submitAttemptMutation.isPending} className="grid gap-2">
+                        <RadioGroup value={selectedOption} onValueChange={setSelectedOption} disabled={!canEditAnswers || isMissingAnswerShell || isBusy} className="grid gap-2">
                           {options.map((option) => (
                             <label
                               key={option.id}
                               className={cn(
                                 'flex items-center space-x-3 p-3 sm:p-4 rounded-xl border-2 transition-all select-none group',
-                                isReviewMode ? 'cursor-default' : 'cursor-pointer',
+                                !canEditAnswers ? 'cursor-default' : 'cursor-pointer',
                                 selectedOption === option.value
                                   ? 'border-primary bg-primary/5'
-                                  : cn('border-border bg-background/50', !isReviewMode && 'hover:border-primary/50 hover:bg-muted/50'),
+                                  : cn('border-border bg-background/50', canEditAnswers && 'hover:border-primary/50 hover:bg-muted/50'),
                               )}
                             >
                               <RadioGroupItem value={option.value} id={option.id} className="mt-0.5 data-[state=checked]:border-primary" />
@@ -564,7 +663,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
                           userId={userId}
                           requirement={question.attachmentRequirement}
                           instruction={question.attachmentInstruction}
-                          canEdit={!isReviewMode && !isMissingAnswerShell}
+                          canEdit={!isApprovalReview && canEditAnswers && !isMissingAnswerShell}
                           answerId={currentAnswerId}
                           isLoading={isLoadingAttachments}
                           isError={isAttachmentsError}
@@ -582,7 +681,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
                         Previous
                       </Button>
                       <div className="flex flex-col sm:flex-row gap-3">
-                        {!isReviewMode && (
+                        {canEditAnswers && !isApprovalReview && (
                           <Button variant="outline" size="lg" className="gap-2" disabled={!selectedOption || isBusy || isMissingAnswerShell} onClick={clearSelectedOption}>
                             <Eraser className="w-4 h-4" />
                             Clear
@@ -591,15 +690,48 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
                         <Button
                           size="lg"
                           className="gap-2"
-                          disabled={(requiresAnswerToContinue && !selectedOption) || isBusy || isMissingAnswerShell || (currentIndex === questions.length - 1 && !isReviewMode && !canSubmit)}
+                          disabled={(requiresAnswerToContinue && !selectedOption) || isBusy || isMissingAnswerShell || (currentIndex === questions.length - 1 && !isReviewMode && !isApprovalReview && !canSubmit)}
                           onClick={currentIndex === questions.length - 1 && isReviewMode ? onClose : goNext}
                         >
                           {submitAttemptMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                          {currentIndex < questions.length - 1 ? 'Next Question' : isReviewMode ? 'Close Review' : 'Finish Checklist'}
+                          {currentIndex < questions.length - 1 ? 'Next Question' : isReviewMode ? 'Close Review' : isApprovalReview ? 'Save Response' : 'Finish Checklist'}
                           <ArrowRight className="w-4 h-4" />
                         </Button>
                       </div>
                     </div>
+
+                    {isApprovalReview && (
+                      <div className="mt-5 space-y-4 border-t border-border pt-5">
+                        <Textarea
+                          value={remarks}
+                          onChange={(event) => setRemarks(event.target.value)}
+                          disabled={isTerminalApproval || isBusy}
+                          placeholder="Reviewer remarks"
+                          className="min-h-[110px]"
+                        />
+                        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="gap-2 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            disabled={isTerminalApproval || isBusy}
+                            onClick={() => decisionMutation.mutate('REJECTED')}
+                          >
+                            {decisionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                            Reject
+                          </Button>
+                          <Button
+                            type="button"
+                            className="gap-2"
+                            disabled={isTerminalApproval || isBusy}
+                            onClick={() => decisionMutation.mutate('APPROVED')}
+                          >
+                            {decisionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                            Approve
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -670,6 +802,21 @@ function formatPoints(value: number | null | undefined) {
   return Number(value).toLocaleString(undefined, {
     maximumFractionDigits: 2,
   });
+}
+
+function getApprovalStatusClass(status: string) {
+  switch (status) {
+    case 'APPROVED':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600';
+    case 'REJECTED':
+      return 'border-destructive/30 bg-destructive/10 text-destructive';
+    case 'IN_PROGRESS':
+      return 'border-blue-500/30 bg-blue-500/10 text-blue-600';
+    case 'CANCELLED':
+      return 'border-muted-foreground/30 bg-muted text-muted-foreground';
+    default:
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-600';
+  }
 }
 
 function ScoreSummary({ attempt }: { attempt: IEBaselineAttempt }) {

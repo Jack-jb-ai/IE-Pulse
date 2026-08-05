@@ -3,6 +3,27 @@
 This backend exposes a small FastAPI API for the IE Baseline frontend.
 
 Authentication: no authentication is currently required for any endpoint.
+Authorization-sensitive IE Baseline APIs use the resolved `user_master.user_id`
+passed by the frontend.
+
+## Current User Authorization Contract
+
+The parent frontend module owns current-user discovery. It provides AD profile
+details to IE Baseline, where users are identified by unique email address.
+
+Flow:
+
+1. Frontend calls `POST /api/iebaseline/users/resolve-current` with the current
+   user's email and profile fields.
+2. If the user exists, the backend returns the existing `user_id`.
+3. If the backend returns `404 User not found`, the frontend may create the user
+   through `POST /api/iebaseline/users/create` with minimum role permission.
+4. Subsequent APIs pass the resolved `user_id`, `uploadedBy`,
+   `approver_user_id`, or `reviewerUserId` as required by each endpoint.
+
+Backend approval authorization checks compare these supplied identifiers against
+`user_master.user_id`, `user_exam_attempt.user_id`, and
+`approval_request.assigned_to`.
 
 Response format: endpoints return JSON.
 
@@ -931,6 +952,8 @@ Status: `200 OK`
     "module_id": 3,
     "module_name": "Order to Cash",
     "description": "Billing controls",
+    "approval_required": true,
+    "approvalRequired": true,
     "owner_name": "Finance",
     "question_count": 12
   }
@@ -944,6 +967,8 @@ Status: `200 OK`
 | `module_id` | Module identifier from `module_master.id` |
 | `module_name` | Module display name |
 | `description` | Module description, or `null` |
+| `approval_required` | Stored module approval flag |
+| `approvalRequired` | Camel-case alias for frontend approval routing |
 | `owner_name` | Module owner, or `null` |
 | `question_count` | Number of checklist questions for this module |
 
@@ -1298,7 +1323,7 @@ Status: `200 OK`
     "moduleId": 3,
     "attemptNo": 2,
     "attemptStatus": "In Progress",
-    "resultStatus": "Pending",
+    "resultStatus": "PENDING",
     "answeredQuestions": 0,
     "totalQuestions": 20,
     "progressPercentage": 0,
@@ -1565,7 +1590,10 @@ The response shape is the same as save answer.
 
 ## POST /api/iebaseline/attempts/{attempt_id}/submit
 
-Submits an attempt and triggers backend scoring.
+Submits an attempt. For modules that do not require approval, this endpoint
+triggers backend scoring immediately. For modules where
+`module_master.approval_required = true`, this endpoint creates an approval
+request and hides the score until the reviewer completes the workflow.
 
 The frontend treats this endpoint as the scoring trigger. The backend remains
 authoritative for all correctness, per-question points, final score, completion
@@ -1573,8 +1601,9 @@ status, and assignment status updates.
 
 Before calling submit, the frontend saves the current final answer with
 `PUT /api/iebaseline/attempts/{attempt_id}/questions/{question_id}/answer`.
-This submit endpoint is the only endpoint that should calculate scoring or
-complete the attempt.
+For non-approval modules, this submit endpoint is the only learner endpoint that
+should calculate scoring or complete the attempt. For approval-required modules,
+scoring is deferred to the approval decision endpoint.
 
 Submit is not a fallback save. The backend must reject any shell that still has
 `is_answered = false`; the oldest unanswered shell is the checkpoint the
@@ -1593,18 +1622,29 @@ frontend should return to.
 Status: `200 OK`
 
 The response shape is the same attempt/progress wrapper returned by start.
-The attempt is updated to:
+For modules with `approval_required = false`, the attempt is updated to:
 
 | Field | Value |
 | --- | --- |
 | `attemptStatus` | `Completed` |
-| `resultStatus` | `Pending`, unless the backend has a configured pass/fail rule |
+| `resultStatus` | `PENDING`, unless the backend has a configured pass/fail rule |
 | `score` | Percentage score from `0` to `100` |
 | `correctAnswers` | `0` for configurable scoring modules without a correct-answer key |
 | `submittedAt` | Current timestamp |
 | `completedAt` | Current timestamp |
 
-Example response:
+For modules with `approval_required = true`, the attempt is updated to:
+
+| Field | Value |
+| --- | --- |
+| `attemptStatus` | `Submitted` |
+| `resultStatus` | `PENDING` |
+| `score` | `null` |
+| `correctAnswers` | `0` |
+| `submittedAt` | Current timestamp |
+| `completedAt` | `null` until approval decision |
+
+Example non-approval response:
 
 ```json
 {
@@ -1613,7 +1653,7 @@ Example response:
     "moduleId": 3,
     "attemptNo": 1,
     "attemptStatus": "Completed",
-    "resultStatus": "Pending",
+    "resultStatus": "PENDING",
     "answeredQuestions": 20,
     "totalQuestions": 20,
     "correctAnswers": 0,
@@ -1623,6 +1663,35 @@ Example response:
     "lastSavedAt": "2026-07-22T14:00:00+08:00",
     "submittedAt": "2026-07-22T14:00:00+08:00",
     "completedAt": "2026-07-22T14:00:01+08:00"
+  },
+  "progress": {
+    "answeredQuestions": 20,
+    "totalQuestions": 20,
+    "progressPercentage": 100,
+    "lastSavedAt": "2026-07-22T14:00:00+08:00"
+  }
+}
+```
+
+Example approval-required response:
+
+```json
+{
+  "attempt": {
+    "attemptId": 15,
+    "moduleId": 3,
+    "attemptNo": 1,
+    "attemptStatus": "Submitted",
+    "resultStatus": "PENDING",
+    "answeredQuestions": 20,
+    "totalQuestions": 20,
+    "correctAnswers": 0,
+    "score": null,
+    "progressPercentage": 100,
+    "startedAt": "2026-07-22T13:00:00+08:00",
+    "lastSavedAt": "2026-07-22T14:00:00+08:00",
+    "submittedAt": "2026-07-22T14:00:00+08:00",
+    "completedAt": null
   },
   "progress": {
     "answeredQuestions": 20,
@@ -1661,7 +1730,11 @@ The backend should:
   with a saved leading answer label of `NA` or `N/A` are treated as not
   applicable and do not require attachments, including descriptive values such
   as `NA - No machine needed for this product`.
-* Calculate scores in one transaction.
+* Calculate scores in one transaction only when module approval is not required.
+* If module approval is required, create one `approval_request` for the attempt
+  and leave score fields hidden until final decision.
+* Assign the approval request to `module_master.owner_user_id`; if the owner is
+  null, fallback to `user_checklist_status.assignee_id`.
 * Load answer options from the module's configured `scoring_metric_id`.
 * Never hardcode answer values such as `Yes`, `No`, or `Partial`.
 * Match scoring options against the selected answer's leading label before `-`
@@ -1672,10 +1745,14 @@ The backend should:
   These rows remain answered, but store `score_awarded` and `maximum_score` as `null`.
 * Store `is_correct`, `score_awarded`, and `maximum_score` on `user_exam_answer`.
 * Keep `is_correct` as `null` for modules that do not have a configured correct-answer key.
-* Store `score`, `correct_answers`, `submitted_at`, and `completed_at` on `user_exam_attempt`.
+* Store `score`, `correct_answers`, `submitted_at`, and `completed_at` on
+  `user_exam_attempt` for non-approval modules and approval final decisions.
 * Store `correct_answers` as `0` when scoring is numeric-only.
-* Mark the related `user_checklist_status` row `Completed` after scoring completes.
-* For now, leave `resultStatus` as `Pending` unless a backend pass/fail rule already exists.
+* Mark the related `user_checklist_status` row `Completed` after scoring
+  completes for non-approval modules or after approval decision for
+  approval-required modules.
+* For approval-required modules, set `resultStatus` to `PENDING` on submit and
+  to `APPROVED` or `REJECTED` on decision.
 
 ### Frontend Save Timing Contract
 
@@ -1716,13 +1793,16 @@ Current frontend behavior:
   `/ietools/iebaseline/api/home`.
 * Uses `user.name` for the display name, `user.position` for the role/title, and
   the matching `assignments[].module_name` for the current module label.
-* Displays `Pending` when the backend returns `resultStatus: "Pending"`.
+* Displays pending status when the backend returns `resultStatus: "PENDING"`.
 * Does not calculate pass/fail from `score` in React.
+* If the backend returns `attemptStatus: "Submitted"` and `score: null`, the
+  result is waiting for approval and the frontend should show approval status
+  rather than a final score.
 
 Future backend requirement:
 
-* When pass/fail rules are configured, return `resultStatus: "Passed"` or
-  `resultStatus: "Failed"` consistently from both this submit endpoint and the
+* When pass/fail rules are configured, return the configured result status
+  consistently from both this submit endpoint and the
   module attempt-list endpoint.
 
 ### Error Responses
@@ -1831,7 +1911,7 @@ Status: `200 OK`
       "moduleId": 3,
       "attemptNo": 1,
       "attemptStatus": "Completed",
-      "resultStatus": "Pending",
+      "resultStatus": "PENDING",
       "answeredQuestions": 20,
       "totalQuestions": 20,
       "correctAnswers": 0,
@@ -1844,6 +1924,283 @@ Status: `200 OK`
     }
   ]
 }
+```
+
+## Approval Module
+
+Approval APIs use the current IE Baseline identity contract. The frontend first
+resolves or creates a `user_master` record using the current user's email, then
+passes the resolved user ID to these endpoints. Learner APIs use `user_id`.
+Reviewer APIs use `approver_user_id`, `reviewer_user_id`, or `reviewerUserId`.
+
+Scores are hidden while approval status is `PENDING` or `IN_PROGRESS`. Scores
+are returned after `APPROVED`, `REJECTED`, or `CANCELLED`.
+
+### GET /api/iebaseline/approvals/my-submissions
+
+Lists approval requests for attempts submitted by one learner.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; resolved user query required |
+| Query parameter | `user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/approvals/my-submissions?user_id=1
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "approvals": [
+    {
+      "approvalId": 7,
+      "attemptId": 15,
+      "moduleId": 3,
+      "moduleName": "Order to Cash",
+      "attemptNo": 1,
+      "learner": { "userId": 1, "name": "Jane Tan" },
+      "approver": { "userId": 5, "name": "Alex Lee" },
+      "status": "PENDING",
+      "attemptStatus": "Submitted",
+      "resultStatus": "PENDING",
+      "remarks": null,
+      "score": null,
+      "submittedAt": "2026-08-05T10:00:00+08:00",
+      "createdAt": "2026-08-05T10:00:01+08:00",
+      "updatedAt": "2026-08-05T10:00:01+08:00",
+      "completedAt": null,
+      "attemptCompletedAt": null
+    }
+  ]
+}
+```
+
+### GET /api/iebaseline/approvals/inbox
+
+Lists approval requests assigned to one reviewer.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; resolved approver query required |
+| Query parameter | `approver_user_id`, required integer |
+| Query parameter | `status`, optional one of `PENDING`, `IN_PROGRESS`, `APPROVED`, `REJECTED`, `CANCELLED` |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/approvals/inbox?approver_user_id=5&status=PENDING
+```
+
+The success response shape is the same as `my-submissions`.
+
+### POST /api/iebaseline/approvals/{approval_id}/start
+
+Marks a pending approval as actively being reviewed.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; reviewer body field required |
+| Path parameter | `approval_id`, required integer |
+| Request body | JSON object with `reviewerUserId` |
+
+```json
+{
+  "reviewerUserId": 5
+}
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "approval": {
+    "approvalId": 7,
+    "attemptId": 15,
+    "assignedTo": 5,
+    "status": "IN_PROGRESS",
+    "remarks": null,
+    "createdAt": "2026-08-05T10:00:01+08:00",
+    "updatedAt": "2026-08-05T10:05:00+08:00",
+    "completedAt": null
+  }
+}
+```
+
+### GET /api/iebaseline/approvals/{approval_id}/review
+
+Returns approval metadata, attempt metadata, progress, and checklist questions
+using the existing review question response shape.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; reviewer query required |
+| Path parameter | `approval_id`, required integer |
+| Query parameter | `reviewer_user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/approvals/7/review?reviewer_user_id=5
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "approval": {},
+  "attempt": {},
+  "progress": {},
+  "questions": []
+}
+```
+
+### PUT /api/iebaseline/approvals/{approval_id}/answers/{answer_id}
+
+Lets the assigned reviewer modify a submitted answer directly. The answer must
+belong to the approval's attempt. Editing a pending approval automatically moves
+it to `IN_PROGRESS`.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; reviewer body field required |
+| Path parameter | `approval_id`, required integer |
+| Path parameter | `answer_id`, required integer |
+| Request body | JSON object with `reviewerUserId` and `selectedAnswer` |
+
+```json
+{
+  "reviewerUserId": 5,
+  "selectedAnswer": "Partial"
+}
+```
+
+### Success Response
+
+Status: `200 OK`
+
+The response shape is the same as learner answer save.
+
+```json
+{
+  "attemptId": 15,
+  "questionId": 25,
+  "answerId": 5001,
+  "selectedAnswer": "Partial",
+  "isAnswered": true,
+  "isAttached": false,
+  "answeredQuestions": 20,
+  "totalQuestions": 20,
+  "progressPercentage": 100,
+  "lastSavedAt": "2026-08-05T10:10:00+08:00"
+}
+```
+
+### POST /api/iebaseline/approvals/{approval_id}/decision
+
+Completes the approval. The backend recalculates score from the current
+authoritative answers, updates the attempt result status, stores reviewer
+remarks, and releases the final score.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | None required; reviewer body field required |
+| Path parameter | `approval_id`, required integer |
+| Request body | JSON object with `reviewerUserId`, `decision`, and optional `remarks` |
+
+`decision` must be `APPROVED` or `REJECTED`.
+
+```json
+{
+  "reviewerUserId": 5,
+  "decision": "APPROVED",
+  "remarks": "Approved after evidence review."
+}
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "approval": {
+    "approvalId": 7,
+    "attemptId": 15,
+    "assignedTo": 5,
+    "status": "APPROVED",
+    "remarks": "Approved after evidence review.",
+    "createdAt": "2026-08-05T10:00:01+08:00",
+    "updatedAt": "2026-08-05T10:20:00+08:00",
+    "completedAt": "2026-08-05T10:20:00+08:00"
+  },
+  "attempt": {
+    "attemptId": 15,
+    "moduleId": 3,
+    "attemptNo": 1,
+    "attemptStatus": "Completed",
+    "resultStatus": "APPROVED",
+    "answeredQuestions": 20,
+    "totalQuestions": 20,
+    "correctAnswers": 0,
+    "score": 72.5,
+    "progressPercentage": 100,
+    "startedAt": "2026-08-05T09:00:00+08:00",
+    "lastSavedAt": "2026-08-05T10:20:00+08:00",
+    "submittedAt": "2026-08-05T10:00:00+08:00",
+    "completedAt": "2026-08-05T10:20:00+08:00"
+  },
+  "progress": {
+    "answeredQuestions": 20,
+    "totalQuestions": 20,
+    "progressPercentage": 100,
+    "lastSavedAt": "2026-08-05T10:20:00+08:00"
+  }
+}
+```
+
+### Approval Error Responses
+
+Common approval errors:
+
+```json
+{ "detail": "User not found" }
+```
+
+```json
+{ "detail": "Approval not found" }
+```
+
+```json
+{ "detail": "User is not assigned to this approval" }
+```
+
+```json
+{ "detail": "Approval is already completed" }
 ```
 
 ## Module Attachments

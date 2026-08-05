@@ -693,23 +693,53 @@ Allowed values:
 
 ### `exam_result_status`
 
-The `exam_result_status` enum stores the final result of an attempt.
+The `exam_result_status` enum stores the approval-oriented result state of an attempt.
 
 ```sql
 CREATE TYPE exam_result_status AS ENUM (
-    'Pending',
-    'Passed',
-    'Failed'
+    'PENDING',
+    'IN_PROGRESS',
+    'APPROVED',
+    'REJECTED',
+    'CANCELLED'
 );
 ```
 
 Allowed values:
 
-| Value     | Description                                       |
-| --------- | ------------------------------------------------- |
-| `Pending` | The attempt has not yet received a final result.  |
-| `Passed`  | The user passed the module checklist.             |
-| `Failed`  | The user did not meet the required passing score. |
+| Value         | Description                                                  |
+| ------------- | ------------------------------------------------------------ |
+| `PENDING`     | The attempt is waiting for review or final result handling.  |
+| `IN_PROGRESS` | The approval/result workflow is actively being reviewed.     |
+| `APPROVED`    | The attempt has been approved.                               |
+| `REJECTED`    | The attempt has been rejected.                               |
+| `CANCELLED`   | The approval/result workflow was cancelled.                  |
+
+---
+
+### `approval_request_status`
+
+The `approval_request_status` enum stores the review state of an approval request.
+
+```sql
+CREATE TYPE approval_request_status AS ENUM (
+    'PENDING',
+    'IN_PROGRESS',
+    'APPROVED',
+    'REJECTED',
+    'CANCELLED'
+);
+```
+
+Allowed values:
+
+| Value         | Description                                      |
+| ------------- | ------------------------------------------------ |
+| `PENDING`     | The request has been created and awaits review.  |
+| `IN_PROGRESS` | The assigned approver has started review.        |
+| `APPROVED`    | The approver approved the submitted attempt.     |
+| `REJECTED`    | The approver rejected the submitted attempt.     |
+| `CANCELLED`   | The request was cancelled before completion.     |
 
 ---
 
@@ -762,7 +792,7 @@ CREATE TABLE user_exam_attempt (
         NOT NULL DEFAULT 'Not Started',
 
     result_status exam_result_status
-        NOT NULL DEFAULT 'Pending',
+        NOT NULL DEFAULT 'PENDING',
 
     total_questions INTEGER NOT NULL DEFAULT 0,
     answered_questions INTEGER NOT NULL DEFAULT 0,
@@ -832,7 +862,7 @@ CREATE TABLE user_exam_attempt (
 | `module_id`                | `BIGINT`              | Not null, foreign key | Module being attempted.                            |
 | `attempt_no`               | `INTEGER`             | Not null, positive    | Attempt number for the user and module.            |
 | `attempt_status`           | `exam_attempt_status` | Not null              | Current lifecycle status of the attempt.           |
-| `result_status`            | `exam_result_status`  | Not null              | Pass, fail, or pending result.                     |
+| `result_status`            | `exam_result_status`  | Not null              | Approval/result state: `PENDING`, `IN_PROGRESS`, `APPROVED`, `REJECTED`, or `CANCELLED`. |
 | `total_questions`          | `INTEGER`             | Not null, nonnegative | Total number of questions included in the attempt. |
 | `answered_questions`       | `INTEGER`             | Not null, nonnegative | Number of questions currently answered.            |
 | `correct_answers`          | `INTEGER`             | Not null, nonnegative | Number of answers marked correct.                  |
@@ -851,8 +881,76 @@ CREATE TABLE user_exam_attempt (
 * `answered_questions` cannot exceed `total_questions`.
 * `correct_answers` cannot exceed `answered_questions`.
 * `score` must be between `0` and `100`.
+* Approval-related result states are stored in `result_status`.
+* A submitted attempt that needs manual review should have one linked `approval_request`.
 * The backend should update `last_saved_at` whenever an answer is saved.
 * The backend should update `answered_questions` after answers are inserted, updated, or cleared.
+
+---
+
+# Table: `approval_request`
+
+The `approval_request` table tracks the manual review workflow for a submitted exam attempt.
+
+One row represents:
+
+```text
+One submitted attempt
++
+One assigned approver
++
+One approval decision lifecycle
+```
+
+```sql
+CREATE TABLE approval_request (
+    approval_id SERIAL PRIMARY KEY,
+
+    attempt_id INTEGER NOT NULL,
+    assigned_to INTEGER NOT NULL,
+
+    status approval_request_status
+        NOT NULL DEFAULT 'PENDING',
+
+    remarks TEXT,
+
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+
+    CONSTRAINT fk_approval_request_attempt
+        FOREIGN KEY (attempt_id)
+        REFERENCES user_exam_attempt(attempt_id),
+
+    CONSTRAINT fk_approval_request_assigned_to
+        FOREIGN KEY (assigned_to)
+        REFERENCES user_master(user_id),
+
+    CONSTRAINT uq_approval_request_attempt
+        UNIQUE (attempt_id)
+);
+```
+
+## Columns
+
+| Column         | Data Type                 | Constraints             | Description                                      |
+| -------------- | ------------------------- | ----------------------- | ------------------------------------------------ |
+| `approval_id`  | `SERIAL`                  | Primary key             | Unique identifier for the approval request.      |
+| `attempt_id`   | `INTEGER`                 | Not null, foreign key, unique | Attempt submitted for approval.            |
+| `assigned_to`  | `INTEGER`                 | Not null, foreign key   | User assigned to review the submitted attempt.   |
+| `status`       | `approval_request_status` | Not null, default `PENDING` | Current approval workflow state.          |
+| `remarks`      | `TEXT`                    | Nullable                | Reviewer remarks or decision notes.              |
+| `created_at`   | `TIMESTAMP`               | Not null, default current timestamp | Time when the request was created.     |
+| `updated_at`   | `TIMESTAMP`               | Not null, default current timestamp | Time when the request was last updated. |
+| `completed_at` | `TIMESTAMP`               | Nullable                | Time when the request reached a final state.      |
+
+## Important Rules
+
+* Each attempt may have at most one approval request.
+* Approval requests are assigned to `user_master.user_id`.
+* The backend should validate that the current user is allowed to act on the request before changing status or remarks.
+* Set `completed_at` when the request reaches `APPROVED`, `REJECTED`, or `CANCELLED`.
+* Keep `user_exam_attempt.result_status` and `approval_request.status` synchronized intentionally in service logic.
 
 ---
 
@@ -1028,6 +1126,28 @@ user_checklist_status 1 ---- many user_exam_attempt
 Deleting the assignment deletes its related attempts.
 
 Because answer rows belong to attempts, deleting the assignment also indirectly deletes the related answers.
+
+---
+
+## Attempt to Approval Request
+
+```text
+user_exam_attempt.attempt_id
+    -> approval_request.attempt_id
+```
+
+One submitted attempt may have one approval request.
+
+```text
+user_exam_attempt 1 ---- 0..1 approval_request
+```
+
+The approval request is assigned to a user:
+
+```text
+approval_request.assigned_to
+    -> user_master.user_id
+```
 
 ---
 

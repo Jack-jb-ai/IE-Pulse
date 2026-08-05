@@ -24,6 +24,7 @@ import FsmsPlants from "@/pages/fsms/FsmsPlants";
 import FsmsSubmissions from "@/pages/fsms/FsmsSubmissions";
 import GlobalOverview from "@/pages/GlobalOverview";
 import AssignModules from "@/pages/iebaseline/AssignModules";
+import Approvals, { ApprovalReviewRoute } from "@/pages/iebaseline/Approvals";
 import DeveloperDocs from "@/pages/iebaseline/DeveloperDocs";
 import FinalResults from "@/pages/iebaseline/FinalResults";
 import IEBaseline from "@/pages/iebaseline/IEBaseline";
@@ -200,6 +201,9 @@ function AppShell() {
               <Route path="/iebaseline" element={<IEBaseline />} />
               <Route path="/iebaseline/edit" element={<IEBaselineEdit />} />
               <Route path="/iebaseline/assign" element={<AssignModules />} />
+              <Route path="/iebaseline/approvals/my-submissions" element={<Approvals defaultTab="my-submissions" />} />
+              <Route path="/iebaseline/approvals/inbox" element={<Approvals defaultTab="inbox" />} />
+              <Route path="/iebaseline/approvals/:approvalId/review" element={<ApprovalReviewRoute />} />
               <Route path="/iebaseline/users" element={<UserManagement />} />
               <Route path="/iebaseline/developer-docs" element={<DeveloperDocs />} />
               <Route path="/iebaseline/module/:moduleId/results" element={<FinalResults />} />

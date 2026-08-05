@@ -60,6 +60,7 @@ export default function FinalResults() {
   const error = currentUserResolveError ?? homeError ?? attemptsError;
   const resultStyle = getResultStyle(attempt?.resultStatus);
   const ResultIcon = resultStyle.Icon;
+  const isWaitingForApproval = attempt?.resultStatus === 'PENDING' || attempt?.resultStatus === 'IN_PROGRESS';
 
   if (isLoading) {
     return (
@@ -130,7 +131,7 @@ export default function FinalResults() {
               <div className="mt-2 flex items-end gap-3">
                 <span className="text-6xl font-bold tracking-tight text-foreground">{formatScore(attempt.score)}</span>
                 <span className="pb-2 text-sm font-medium text-muted-foreground">
-                  {attempt.answeredQuestions} / {attempt.totalQuestions} answered
+                  {isWaitingForApproval ? 'Waiting for approval' : `${attempt.answeredQuestions} / ${attempt.totalQuestions} answered`}
                 </span>
               </div>
             </div>
@@ -273,6 +274,7 @@ function formatDateTime(value: string | null | undefined) {
 function getResultStyle(status: IEBaselineAttempt['resultStatus'] | undefined) {
   switch (status) {
     case 'Passed':
+    case 'APPROVED':
       return {
         Icon: CheckCircle2,
         panelClass: 'border-emerald-500/30 bg-emerald-500/5',
@@ -280,11 +282,19 @@ function getResultStyle(status: IEBaselineAttempt['resultStatus'] | undefined) {
         iconWrapClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600',
       };
     case 'Failed':
+    case 'REJECTED':
       return {
         Icon: XCircle,
         panelClass: 'border-destructive/30 bg-destructive/5',
         badgeClass: 'border-destructive/30 bg-destructive/10 text-destructive',
         iconWrapClass: 'border-destructive/30 bg-destructive/10 text-destructive',
+      };
+    case 'IN_PROGRESS':
+      return {
+        Icon: ClipboardCheck,
+        panelClass: 'border-blue-500/30 bg-blue-500/5',
+        badgeClass: 'border-blue-500/30 bg-blue-500/10 text-blue-600',
+        iconWrapClass: 'border-blue-500/30 bg-blue-500/10 text-blue-600',
       };
     default:
       return {

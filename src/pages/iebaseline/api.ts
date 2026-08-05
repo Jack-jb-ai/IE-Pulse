@@ -154,7 +154,9 @@ export interface IEBaselineUpdateUserModulesResponse {
 }
 
 export type IEBaselineExamAttemptStatus = 'Not Started' | 'In Progress' | 'Submitted' | 'Completed' | 'Abandoned';
-export type IEBaselineExamResultStatus = 'Pending' | 'Passed' | 'Failed';
+export type IEBaselineApprovalStatus = 'PENDING' | 'IN_PROGRESS' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export type IEBaselineExamResultStatus = 'Pending' | 'Passed' | 'Failed' | IEBaselineApprovalStatus;
+export type IEBaselineApprovalDecision = 'APPROVED' | 'REJECTED';
 
 export interface IEBaselineAttemptProgress {
   answeredQuestions: number;
@@ -245,6 +247,60 @@ export interface IEBaselineSaveAnswerResponse {
 }
 
 export interface IEBaselineSubmitAttemptResponse {
+  attempt: IEBaselineAttempt;
+  progress: IEBaselineAttemptProgress;
+}
+
+export interface IEBaselineApprovalPerson {
+  userId: number;
+  name: string;
+}
+
+export interface IEBaselineApprovalListItem {
+  approvalId: number;
+  attemptId: number;
+  moduleId: number;
+  moduleName: string;
+  attemptNo: number;
+  learner: IEBaselineApprovalPerson;
+  approver: IEBaselineApprovalPerson;
+  status: IEBaselineApprovalStatus;
+  attemptStatus: IEBaselineExamAttemptStatus;
+  resultStatus: IEBaselineExamResultStatus;
+  remarks: string | null;
+  score: number | null;
+  submittedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  attemptCompletedAt: string | null;
+}
+
+export interface IEBaselineApprovalsResponse {
+  approvals: IEBaselineApprovalListItem[];
+}
+
+export interface IEBaselineApproval {
+  approvalId: number;
+  attemptId: number;
+  assignedTo: number;
+  status: IEBaselineApprovalStatus;
+  remarks: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface IEBaselineApprovalResponse {
+  approval: IEBaselineApproval;
+}
+
+export interface IEBaselineApprovalReviewResponse extends IEBaselineAttemptQuestionsResponse {
+  approval: IEBaselineApproval;
+}
+
+export interface IEBaselineApprovalDecisionResponse {
+  approval: IEBaselineApproval;
   attempt: IEBaselineAttempt;
   progress: IEBaselineAttemptProgress;
 }
@@ -501,6 +557,43 @@ export const ieBaselineApi = {
       sendJson<IEBaselineSubmitAttemptResponse>(
         'POST',
         `/attempts/${encodeURIComponent(String(attemptId))}/submit`,
+      ),
+  },
+  approvals: {
+    listMySubmissions: (userId: number) =>
+      get<IEBaselineApprovalsResponse>(
+        `/approvals/my-submissions?user_id=${encodeURIComponent(String(userId))}`,
+      ),
+    listInbox: (approverUserId: number, status?: IEBaselineApprovalStatus | 'ACTIONABLE') => {
+      const params = new URLSearchParams({ approver_user_id: String(approverUserId) });
+      if (status && status !== 'ACTIONABLE') params.set('status', status);
+      return get<IEBaselineApprovalsResponse>(`/approvals/inbox?${params.toString()}`);
+    },
+    start: (approvalId: number, reviewerUserId: number) =>
+      sendJson<IEBaselineApprovalResponse, { reviewerUserId: number }>(
+        'POST',
+        `/approvals/${encodeURIComponent(String(approvalId))}/start`,
+        { reviewerUserId },
+      ),
+    getReview: (approvalId: number, reviewerUserId: number) =>
+      get<IEBaselineApprovalReviewResponse>(
+        `/approvals/${encodeURIComponent(String(approvalId))}/review?reviewer_user_id=${encodeURIComponent(String(reviewerUserId))}`,
+      ),
+    updateAnswer: (approvalId: number, answerId: number, reviewerUserId: number, selectedAnswer: string | null) =>
+      sendJson<IEBaselineSaveAnswerResponse, { reviewerUserId: number; selectedAnswer: string | null }>(
+        'PUT',
+        `/approvals/${encodeURIComponent(String(approvalId))}/answers/${encodeURIComponent(String(answerId))}`,
+        { reviewerUserId, selectedAnswer },
+      ),
+    decision: (approvalId: number, reviewerUserId: number, decision: IEBaselineApprovalDecision, remarks?: string) =>
+      sendJson<IEBaselineApprovalDecisionResponse, { reviewerUserId: number; decision: IEBaselineApprovalDecision; remarks?: string }>(
+        'POST',
+        `/approvals/${encodeURIComponent(String(approvalId))}/decision`,
+        {
+          reviewerUserId,
+          decision,
+          ...(remarks !== undefined ? { remarks } : {}),
+        },
       ),
   },
 };
