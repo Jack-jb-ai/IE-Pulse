@@ -1,5 +1,52 @@
 # IE Baseline Progress
 
+## 2026-08-05 - RBAC Route Access and Approval UX Cleanup
+
+Implemented the IE Baseline frontend RBAC pass using
+`role_system_module_access` view permissions from the backend.
+
+### Updated
+
+- Added frontend route access handling for IE Baseline routes using the
+  backend-provided system module list.
+- Direct route access now checks granted `system_module_master.route_path`
+  entries through `can_view` permissions.
+- IE Baseline sidebar items are filtered by the same route access data.
+- Added support for composite sidebar nav access, so the `Approvals` nav item
+  can show when the user can access either:
+  - `/iebaseline/approvals/inbox`
+  - `/iebaseline/approvals/my-submissions`
+- The `Approvals` sidebar item prefers Inbox when granted, otherwise falls
+  back to My Submissions.
+- Approval page tabs are now filtered by route access, so users without inbox
+  permission no longer see the `Approval Inbox` tab.
+- Approval list queries are permission-gated so denied tabs do not trigger
+  their backend API calls.
+- Added `current_user_id` query params to protected IE Baseline API wrappers
+  that need the resolved actor ID.
+- Wired the resolved IE Baseline user ID through:
+  - assignment management protected calls,
+  - user management protected calls,
+  - learner attempt question load/save/clear/submit calls.
+- Kept approval review APIs unchanged because they already pass reviewer actor
+  fields.
+- Removed deprecated `dev/admin` from frontend fallback roles.
+
+### Verified
+
+- Ran focused IE Baseline tests:
+
+```powershell
+npm test -- --run src/pages/iebaseline/access.test.ts src/pages/iebaseline/api.test.ts src/pages/iebaseline/Approvals.test.ts
+```
+
+- Result: 3 test files passed, 13 tests passed.
+- Ran `npm run build:iebaseline`.
+- The sandboxed test/build attempts hit the known Windows Vite `spawn EPERM`
+  while loading config.
+- The same commands passed when rerun with approval for Vite/Node subprocess
+  spawning.
+
 ## 2026-08-05 - Approval Module Frontend
 
 Implemented the frontend approval workflow for submitted checklist attempts

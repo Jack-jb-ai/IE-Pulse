@@ -14,10 +14,11 @@ import {
   type IEBaselineApprovalListItem,
   type IEBaselineApprovalStatus,
 } from './api';
+import { useIEBaselineRouteAccess } from './access';
 import ExamModal from './components/ExamModal';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
-type ApprovalTab = 'my-submissions' | 'inbox';
+export type ApprovalTab = 'my-submissions' | 'inbox';
 type InboxFilter = IEBaselineApprovalStatus | 'ACTIONABLE';
 
 interface ApprovalsProps {
@@ -25,27 +26,41 @@ interface ApprovalsProps {
 }
 
 const inboxFilters: InboxFilter[] = ['ACTIONABLE', 'PENDING', 'IN_PROGRESS', 'APPROVED', 'REJECTED', 'CANCELLED'];
+const APPROVAL_TAB_ROUTES: Record<ApprovalTab, string> = {
+  'my-submissions': '/iebaseline/approvals/my-submissions',
+  inbox: '/iebaseline/approvals/inbox',
+};
+
+export function getVisibleIEBaselineApprovalTabs(canView: (path: string) => boolean): ApprovalTab[] {
+  return (Object.keys(APPROVAL_TAB_ROUTES) as ApprovalTab[]).filter((tab) => canView(APPROVAL_TAB_ROUTES[tab]));
+}
 
 export default function Approvals({ defaultTab = 'my-submissions' }: ApprovalsProps) {
   const navigate = useNavigate();
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>('ACTIONABLE');
   const {
     ieBaselineUserId,
-    isLoading: isResolvingCurrentUser,
-    error: currentUserResolveError,
-  } = useIEBaselineCurrentUser();
+    isLoading: isResolvingAccess,
+    error: accessError,
+    canView,
+  } = useIEBaselineRouteAccess();
+  const canViewSubmissions = canView(APPROVAL_TAB_ROUTES['my-submissions']);
+  const canViewInbox = canView(APPROVAL_TAB_ROUTES.inbox);
+  const visibleTabs = getVisibleIEBaselineApprovalTabs(canView);
+  const activeTab = visibleTabs.includes(defaultTab) ? defaultTab : visibleTabs[0] ?? defaultTab;
+  const showTabsList = visibleTabs.length > 1;
 
   const submissionsQuery = useQuery({
     queryKey: ['iebaseline', 'approvals', 'my-submissions', ieBaselineUserId],
     queryFn: () => ieBaselineApi.approvals.listMySubmissions(ieBaselineUserId!),
-    enabled: Boolean(ieBaselineUserId),
+    enabled: Boolean(ieBaselineUserId && canViewSubmissions),
     refetchOnWindowFocus: false,
   });
 
   const inboxQuery = useQuery({
     queryKey: ['iebaseline', 'approvals', 'inbox', ieBaselineUserId, inboxFilter],
     queryFn: () => ieBaselineApi.approvals.listInbox(ieBaselineUserId!, inboxFilter),
-    enabled: Boolean(ieBaselineUserId),
+    enabled: Boolean(ieBaselineUserId && canViewInbox),
     refetchOnWindowFocus: false,
   });
 
@@ -56,8 +71,8 @@ export default function Approvals({ defaultTab = 'my-submissions' }: ApprovalsPr
       : approvals;
   }, [inboxFilter, inboxQuery.data?.approvals]);
 
-  const isLoading = isResolvingCurrentUser;
-  const error = currentUserResolveError;
+  const isLoading = isResolvingAccess;
+  const error = accessError;
 
   if (isLoading) {
     return (
@@ -94,56 +109,66 @@ export default function Approvals({ defaultTab = 'my-submissions' }: ApprovalsPr
       </div>
 
       <Tabs
-        value={defaultTab}
+        value={activeTab}
         onValueChange={(value) => navigate(`/iebaseline/approvals/${value}`)}
         className="space-y-5"
       >
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="my-submissions" className="gap-2">
-            <Send className="h-4 w-4" />
-            My Submissions
-          </TabsTrigger>
-          <TabsTrigger value="inbox" className="gap-2">
-            <Inbox className="h-4 w-4" />
-            Approval Inbox
-          </TabsTrigger>
-        </TabsList>
+        {showTabsList && (
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            {canViewSubmissions && (
+              <TabsTrigger value="my-submissions" className="gap-2">
+                <Send className="h-4 w-4" />
+                My Submissions
+              </TabsTrigger>
+            )}
+            {canViewInbox && (
+              <TabsTrigger value="inbox" className="gap-2">
+                <Inbox className="h-4 w-4" />
+                Approval Inbox
+              </TabsTrigger>
+            )}
+          </TabsList>
+        )}
 
-        <TabsContent value="my-submissions">
-          <ApprovalList
-            title="My Submissions"
-            description="Approval requests created from your submitted checklists."
-            approvals={submissionsQuery.data?.approvals ?? []}
-            isLoading={submissionsQuery.isLoading}
-            error={submissionsQuery.error}
-            emptyLabel="No submitted approvals yet."
-            mode="submissions"
-          />
-        </TabsContent>
+        {canViewSubmissions && (
+          <TabsContent value="my-submissions">
+            <ApprovalList
+              title="My Submissions"
+              description="Approval requests created from your submitted checklists."
+              approvals={submissionsQuery.data?.approvals ?? []}
+              isLoading={submissionsQuery.isLoading}
+              error={submissionsQuery.error}
+              emptyLabel="No submitted approvals yet."
+              mode="submissions"
+            />
+          </TabsContent>
+        )}
 
-        <TabsContent value="inbox">
-          <ApprovalList
-            title="Approval Inbox"
-            description="Checklist submissions assigned to you for review."
-            approvals={inboxItems}
-            isLoading={inboxQuery.isLoading}
-            error={inboxQuery.error}
-            emptyLabel="No approval requests match this filter."
-            mode="inbox"
-            rightSlot={
-              <Select value={inboxFilter} onValueChange={(value) => setInboxFilter(value as InboxFilter)}>
-                <SelectTrigger className="w-full sm:w-[210px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {inboxFilters.map((filter) => (
-                    <SelectItem key={filter} value={filter}>{filter === 'ACTIONABLE' ? 'Actionable' : filter}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            }
-          />
-        </TabsContent>
+        {canViewInbox && (
+          <TabsContent value="inbox">
+            <ApprovalList
+              title="Approval Inbox"
+              description="Checklist submissions assigned to you for review."
+              approvals={inboxItems}
+              isLoading={inboxQuery.isLoading}
+              error={inboxQuery.error}
+              emptyLabel="No approval requests match this filter."
+              mode="inbox"
+              rightSlot={
+                <Select value={inboxFilter} onValueChange={(value) => setInboxFilter(value as InboxFilter)}>
+                  <SelectTrigger className="w-full sm:w-[210px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {inboxFilters.map((filter) => (
+                      <SelectItem key={filter} value={filter}>{filter === 'ACTIONABLE' ? 'Actionable' : filter}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              }
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

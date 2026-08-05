@@ -8,7 +8,7 @@ import { useApp } from '@/context/AppContext';
 import { shortName, useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProductionSummary, useWorkcells } from '@/hooks/useMesData';
 import { cn } from '@/lib/utils';
-import { useIEBaselineRouteAccess } from '@/pages/iebaseline/access';
+import { resolveIEBaselineNavTarget, useIEBaselineRouteAccess } from '@/pages/iebaseline/access';
 import {
   ChevronDown,
   Factory, Moon, PanelLeftClose, PanelLeftOpen,
@@ -231,11 +231,12 @@ function IEBaselineSidebarItems({ items, collapsed }: { items: NavItem[]; collap
   return (
     <>
       {items
-        .filter((item) => access.canView(item.to))
-        .map((item) => (
+        .map((item) => ({ item, resolvedTo: resolveIEBaselineNavTarget(item, access.canView) }))
+        .filter(({ resolvedTo }) => Boolean(resolvedTo))
+        .map(({ item, resolvedTo }) => (
           <SidebarLink
             key={item.to}
-            to={item.to}
+            to={resolvedTo!}
             icon={item.icon}
             label={item.label}
             collapsed={collapsed}

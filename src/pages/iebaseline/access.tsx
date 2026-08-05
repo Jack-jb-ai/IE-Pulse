@@ -45,6 +45,15 @@ export function doesIEBaselineRouteMatch(pattern: string, pathname: string) {
   return Boolean(matchPath({ path: pattern, end: true }, pathname));
 }
 
+export function resolveIEBaselineNavTarget(
+  item: { to: string; accessPaths?: readonly string[] },
+  canView: (path: string) => boolean,
+) {
+  const candidates = [item.to, ...(item.accessPaths ?? [])];
+  const uniqueCandidates = Array.from(new Set(candidates));
+  return uniqueCandidates.find((path) => canView(path)) ?? null;
+}
+
 function isViewableModule(module: IEBaselineSystemModule) {
   return module.can_view === true && module.is_active !== false && Boolean(module.route_path);
 }

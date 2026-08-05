@@ -38,6 +38,8 @@ export interface NavItem {
   label: string;
   to: string;
   icon: LucideIcon;
+  /** Optional alternate routes that can make this nav item visible for RBAC-filtered apps. */
+  accessPaths?: string[];
   /** If true, only show when sidebar is expanded (e.g. sub-items) */
   sub?: boolean;
   /** If true (default), only active on exact match. Set false to keep active on `to/*` sub-routes. */
@@ -235,7 +237,12 @@ export const APPS: AppConfig[] = [
       { label: 'Overview', to: '/iebaseline', icon: Home },
       { label: 'Edit', to: '/iebaseline/edit', icon: Pencil },
       { label: 'Assign', to: '/iebaseline/assign', icon: UserCheck },
-      { label: 'Approvals', to: '/iebaseline/approvals/inbox', icon: Inbox },
+      {
+        label: 'Approvals',
+        to: '/iebaseline/approvals/inbox',
+        icon: Inbox,
+        accessPaths: ['/iebaseline/approvals/inbox', '/iebaseline/approvals/my-submissions'],
+      },
       { label: 'User Management', to: '/iebaseline/users', icon: Users },
       { label: 'Developer Docs', to: '/iebaseline/developer-docs', icon: FileText },
     ],
