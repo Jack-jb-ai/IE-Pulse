@@ -11,6 +11,9 @@ const routes = [
   { path: '/iebaseline/module/:moduleId', page: 'ModuleOverview.tsx', purpose: 'Module overview and checklist entry' },
   { path: '/iebaseline/module/:moduleId/results', page: 'FinalResults.tsx', purpose: 'Final submitted/completed attempt results' },
   { path: '/iebaseline/assign', page: 'AssignModules.tsx', purpose: 'User/module assignment management' },
+  { path: '/iebaseline/approvals/my-submissions', page: 'Approvals.tsx', purpose: 'Learner approval request history' },
+  { path: '/iebaseline/approvals/inbox', page: 'Approvals.tsx', purpose: 'Approver inbox for assigned checklist reviews' },
+  { path: '/iebaseline/approvals/:approvalId/review', page: 'ApprovalReviewRoute', purpose: 'Full-screen approver review workflow' },
   { path: '/iebaseline/users', page: 'UserManagement.tsx', purpose: 'Create, update, and delete user_master records' },
   { path: '/iebaseline/edit', page: 'IEBaselineEdit.tsx', purpose: 'Legacy/mock module management landing page' },
   { path: '/iebaseline/admin/:moduleId', page: 'ModuleAdmin.tsx', purpose: 'Legacy/mock module editor' },
@@ -122,6 +125,7 @@ const pages = [
       'Lists, uploads, deletes, and downloads answer attachments when questions require or allow evidence.',
       'Submits the attempt, invalidates related query caches, and navigates to final results.',
       'Supports review-only mode for completed/submitted attempts.',
+      'Supports approval review mode with editable approver answers, read-only evidence downloads, reviewer remarks, and approve/reject decisions.',
     ],
     apis: [
       'POST /modules/{module_id}/attempts/start',
@@ -134,6 +138,10 @@ const pages = [
       'DELETE /modules/{module_id}/attachments/{attachment_unq_id}',
       'GET /attachments/{attachment_unq_id}/download?user_id=...',
       'POST /attempts/{attempt_id}/submit',
+      'GET /approvals/{approval_id}/review?reviewer_user_id=...',
+      'POST /approvals/{approval_id}/start',
+      'PUT /approvals/{approval_id}/answers/{answer_id}',
+      'POST /approvals/{approval_id}/decision',
     ],
     actions: [
       {
@@ -173,6 +181,24 @@ const pages = [
         api: 'POST /attempts/{attempt_id}/submit.',
       },
       {
+        trigger: 'Approval review open',
+        condition: 'approvalId is provided and review data loads with status PENDING.',
+        result: 'Marks the request as actively reviewed.',
+        api: 'POST /approvals/{approval_id}/start.',
+      },
+      {
+        trigger: 'Approval answer change',
+        condition: 'Assigned approver changes a selected answer in a non-terminal approval.',
+        result: 'Updates the authoritative submitted answer and cached progress.',
+        api: 'PUT /approvals/{approval_id}/answers/{answer_id}.',
+      },
+      {
+        trigger: 'Approve / Reject',
+        condition: 'Assigned approver submits a decision for a non-terminal approval.',
+        result: 'Recalculates score on the backend, stores remarks, and invalidates approval/attempt/home queries.',
+        api: 'POST /approvals/{approval_id}/decision.',
+      },
+      {
         trigger: 'Close modal',
         condition: 'Available from modal controls.',
         result: 'Closes ExamModal and returns to the current module overview page.',
@@ -193,6 +219,7 @@ const pages = [
       'Selects the latest submitted or completed attempt.',
       'Uses submit navigation state as an immediate fallback after finishing a checklist.',
       'Displays result status, score, attempt number, answered count, learner details, and completion date.',
+      'Shows waiting-for-approval messaging while resultStatus is PENDING or IN_PROGRESS and the backend hides score.',
     ],
     apis: ['POST /users/resolve-current', 'GET /home?user_id=...', 'GET /modules/{module_id}/attempts?user_id=...'],
     actions: [
@@ -201,6 +228,59 @@ const pages = [
         condition: 'Shown at top and bottom of the results page.',
         result: 'Routes to /iebaseline/module/{moduleId}.',
         api: 'No direct call; target page calls GET /home.',
+      },
+    ],
+  },
+  {
+    name: 'Approvals',
+    route: '/iebaseline/approvals/my-submissions, /iebaseline/approvals/inbox',
+    file: 'Approvals.tsx',
+    owner: 'Learner approval history and assigned approver inbox',
+    source: 'Approval request APIs plus current-user resolution for learner/reviewer identity.',
+    features: [
+      'Resolves the active IE Baseline user through useIEBaselineCurrentUser.',
+      'Provides route-backed My Submissions and Approval Inbox tabs.',
+      'Lists learner-submitted approval requests with status, dates, remarks, and released score.',
+      'Lists assigned approver requests with an actionable PENDING/IN_PROGRESS filter plus explicit status filters.',
+      'Routes inbox rows to the full-screen approval review workflow.',
+      'Routes submission rows to the module result page.',
+    ],
+    apis: [
+      'POST /users/resolve-current',
+      'GET /approvals/my-submissions?user_id=...',
+      'GET /approvals/inbox?approver_user_id=...',
+      'GET /approvals/inbox?approver_user_id=...&status=...',
+    ],
+    actions: [
+      {
+        trigger: 'My Submissions tab',
+        condition: 'Current user is resolved.',
+        result: 'Lists approval requests submitted by the current learner.',
+        api: 'GET /approvals/my-submissions.',
+      },
+      {
+        trigger: 'Approval Inbox tab',
+        condition: 'Current user is resolved.',
+        result: 'Lists approval requests assigned to the current reviewer.',
+        api: 'GET /approvals/inbox.',
+      },
+      {
+        trigger: 'Inbox status filter',
+        condition: 'Inbox tab is active.',
+        result: 'Refetches or locally filters approval requests by selected status.',
+        api: 'GET /approvals/inbox with optional status.',
+      },
+      {
+        trigger: 'Review',
+        condition: 'Visible for approval inbox rows.',
+        result: 'Routes to /iebaseline/approvals/{approvalId}/review.',
+        api: 'Target route calls GET /approvals/{approval_id}/review.',
+      },
+      {
+        trigger: 'Result',
+        condition: 'Visible for my submission rows.',
+        result: 'Routes to /iebaseline/module/{moduleId}/results.',
+        api: 'Target page calls GET /home and GET /modules/{module_id}/attempts.',
       },
     ],
   },
@@ -388,6 +468,12 @@ const apiCalls = [
   { method: 'DELETE', path: '/modules/{module_id}/attachments/{attachment_unq_id}?user_id=...', wrapper: 'modules.attachments.remove', usedBy: 'Exam Modal', purpose: 'Remove evidence for one answer' },
   { method: 'GET', path: '/attachments/{attachment_unq_id}/download?user_id=...', wrapper: 'modules.attachments.downloadUrl', usedBy: 'Exam Modal', purpose: 'Build attachment download URL' },
   { method: 'POST', path: '/attempts/{attempt_id}/submit', wrapper: 'attempts.submit', usedBy: 'Exam Modal', purpose: 'Submit and score attempt' },
+  { method: 'GET', path: '/approvals/my-submissions?user_id=...', wrapper: 'approvals.listMySubmissions', usedBy: 'Approvals', purpose: 'List approval requests submitted by the current learner' },
+  { method: 'GET', path: '/approvals/inbox?approver_user_id=...', wrapper: 'approvals.listInbox', usedBy: 'Approvals', purpose: 'List approval requests assigned to the current approver' },
+  { method: 'POST', path: '/approvals/{approval_id}/start', wrapper: 'approvals.start', usedBy: 'Approval Review', purpose: 'Mark a pending approval as in progress' },
+  { method: 'GET', path: '/approvals/{approval_id}/review?reviewer_user_id=...', wrapper: 'approvals.getReview', usedBy: 'Approval Review', purpose: 'Load approval metadata, attempt metadata, progress, questions, and answers' },
+  { method: 'PUT', path: '/approvals/{approval_id}/answers/{answer_id}', wrapper: 'approvals.updateAnswer', usedBy: 'Approval Review', purpose: 'Let the assigned approver update an authoritative submitted answer' },
+  { method: 'POST', path: '/approvals/{approval_id}/decision', wrapper: 'approvals.decision', usedBy: 'Approval Review', purpose: 'Approve or reject, store remarks, and release final score/status' },
 ];
 
 const flow = [
@@ -396,12 +482,14 @@ const flow = [
   'Module overview loads GET /home, finds the matching assignment, and opens ExamModal.',
   'ExamModal starts/resumes an attempt, loads questions, saves or clears answers, then submits.',
   'Submit navigates to /iebaseline/module/:moduleId/results with the submit result in navigation state.',
-  'Final results reloads home and attempt history, then displays the latest submitted/completed attempt.',
+  'Final results reloads home and attempt history, then displays the latest submitted/completed attempt or approval waiting state.',
   'Assign modules loads users/modules/user assignments, saves changes, then invalidates IE Baseline queries.',
   'User Management searches users, loads full profiles for edits/deletes, and writes through dedicated user_master APIs.',
+  'Approvals loads my-submissions and inbox requests for the resolved user.',
+  'Approval review loads the review payload, starts pending approvals, saves approver answer edits, and posts the final decision.',
 ];
 
-const usedByOptions = ['All', 'Assign Modules', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'User Management'];
+const usedByOptions = ['All', 'Approval Review', 'Approvals', 'Assign Modules', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'User Management'];
 
 function methodClass(method: string) {
   switch (method) {

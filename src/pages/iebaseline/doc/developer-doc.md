@@ -63,6 +63,9 @@ npm run build:iebaseline
 | `/iebaseline/module/:moduleId` | `ModuleOverview.tsx` | Module overview and checklist entry |
 | `/iebaseline/module/:moduleId/results` | `FinalResults.tsx` | Final submitted/completed attempt results |
 | `/iebaseline/assign` | `AssignModules.tsx` | User/module assignment management |
+| `/iebaseline/approvals/my-submissions` | `Approvals.tsx` | Learner approval request history |
+| `/iebaseline/approvals/inbox` | `Approvals.tsx` | Approver inbox for assigned checklist reviews |
+| `/iebaseline/approvals/:approvalId/review` | `ApprovalReviewRoute` in `Approvals.tsx` | Full-screen approver review workflow |
 | `/iebaseline/users` | `UserManagement.tsx` | Create, update, and delete `user_master` records |
 | `/iebaseline/edit` | `IEBaselineEdit.tsx` | Legacy/mock module management landing page |
 | `/iebaseline/admin/:moduleId` | `ModuleAdmin.tsx` | Legacy/mock module editor |
@@ -143,6 +146,10 @@ Features:
   required attachment questions.
 * Submits the attempt and navigates to final results.
 * Supports review-only display of a completed/submitted attempt.
+* Supports approval review mode when passed `approvalId`; this mode loads the
+  approval review payload, allows the assigned approver to edit selected
+  answers, shows attachments read-only, captures reviewer remarks, and submits
+  approve/reject decisions.
 
 API calls:
 
@@ -156,6 +163,11 @@ API calls:
 * `DELETE /modules/{module_id}/attachments/{attachment_unq_id}?user_id={user_id}`
 * `GET /attachments/{attachment_unq_id}/download?user_id={user_id}`
 * `POST /attempts/{attempt_id}/submit`
+* Approval mode only:
+  * `GET /approvals/{approval_id}/review?reviewer_user_id={user_id}`
+  * `POST /approvals/{approval_id}/start`
+  * `PUT /approvals/{approval_id}/answers/{answer_id}`
+  * `POST /approvals/{approval_id}/decision`
 
 Actions and triggers:
 
@@ -168,6 +180,9 @@ Actions and triggers:
 | Remove attachment | Attachment exists and the attempt is editable | Deletes evidence and refreshes attachment/question state | `DELETE /modules/{module_id}/attachments/{attachment_unq_id}` |
 | Download attachment | Attachment exists | Opens backend download URL using the resolved `user_id` | `GET /attachments/{attachment_unq_id}/download` |
 | Finish / Submit checklist | User submits the checklist | Submits attempt, invalidates related queries, routes to final results | `POST /attempts/{attempt_id}/submit` |
+| Approval review open | `approvalId` is provided and review data loads with status `PENDING` | Marks the request as actively reviewed | `POST /approvals/{approval_id}/start` |
+| Approval answer change | Assigned approver changes a selected answer in a non-terminal approval | Updates the authoritative submitted answer and cached progress | `PUT /approvals/{approval_id}/answers/{answer_id}` |
+| Approve / Reject | Assigned approver submits a decision for a non-terminal approval | Recalculates score on the backend, stores remarks, invalidates approval/attempt/home queries | `POST /approvals/{approval_id}/decision` |
 | Close modal | Modal controls are used | Closes the modal and returns to module overview | No API call |
 
 ### Final Results
@@ -183,6 +198,8 @@ Features:
 * Can use submit result passed through navigation state as an immediate fallback.
 * Shows result status, score, attempt number, answered question count, learner
   details, and completion date.
+* Treats `PENDING` and `IN_PROGRESS` approval results as waiting for approval;
+  the score remains hidden while the backend returns `score = null`.
 
 API calls:
 
@@ -195,6 +212,44 @@ Actions and triggers:
 | Trigger | Condition | Result | API impact |
 | --- | --- | --- | --- |
 | Return to Module | Top and bottom result page controls | Routes to `/iebaseline/module/{moduleId}` | No direct call; target page calls `GET /home` |
+
+### Approvals
+
+File: `src/pages/iebaseline/Approvals.tsx`
+
+Features:
+
+* Resolves the active IE Baseline user through `useIEBaselineCurrentUser`.
+* Provides two route-backed tabs:
+  * My Submissions for approval requests created from the current learner's
+    submitted attempts.
+  * Approval Inbox for approval requests assigned to the current user.
+* Inbox filter defaults to actionable requests by showing `PENDING` and
+  `IN_PROGRESS`; explicit status filters are available for all approval states.
+* Approval rows show module name, learner, approver, attempt number, approval
+  status, submitted/completed dates, remarks, and score when released.
+* Inbox rows link to `/iebaseline/approvals/:approvalId/review`.
+* Submission rows link to the module result page.
+* The review route mounts `ExamModal` in approval mode with the resolved
+  reviewer user ID and the route `approvalId`.
+
+API calls:
+
+* `POST /users/resolve-current`
+* `GET /approvals/my-submissions?user_id={user_id}`
+* `GET /approvals/inbox?approver_user_id={user_id}`
+* `GET /approvals/inbox?approver_user_id={user_id}&status={status}`
+* Delegates review behavior to `components/ExamModal.tsx`.
+
+Actions and triggers:
+
+| Trigger | Condition | Result | API impact |
+| --- | --- | --- | --- |
+| My Submissions tab | Current user is resolved | Lists approval requests submitted by the current learner | `GET /approvals/my-submissions` |
+| Approval Inbox tab | Current user is resolved | Lists approval requests assigned to the current reviewer | `GET /approvals/inbox` |
+| Inbox status filter | Inbox tab is active | Refetches or locally filters approval requests by selected status | `GET /approvals/inbox` with optional `status` |
+| Review | Approval inbox row | Routes to full-screen approval review | Target route calls `GET /approvals/{approval_id}/review` |
+| Result | My Submissions row | Routes to the module result page | Target page calls `GET /home` and `GET /modules/{module_id}/attempts` |
 
 ### Assign Modules
 
@@ -327,6 +382,12 @@ Actions and triggers:
 | DELETE | `/modules/{module_id}/attachments/{attachment_unq_id}?user_id=...` | `ieBaselineApi.modules.attachments.remove` | Exam modal | Remove evidence for one answer |
 | GET | `/attachments/{attachment_unq_id}/download?user_id=...` | `ieBaselineApi.modules.attachments.downloadUrl` | Exam modal | Build attachment download URL |
 | POST | `/attempts/{attempt_id}/submit` | `ieBaselineApi.attempts.submit` | Exam modal | Submit and score attempt |
+| GET | `/approvals/my-submissions?user_id=...` | `ieBaselineApi.approvals.listMySubmissions` | Approvals | List approval requests submitted by the current learner |
+| GET | `/approvals/inbox?approver_user_id=...` | `ieBaselineApi.approvals.listInbox` | Approvals | List approval requests assigned to the current approver |
+| POST | `/approvals/{approval_id}/start` | `ieBaselineApi.approvals.start` | Approval review | Mark a pending approval as in progress |
+| GET | `/approvals/{approval_id}/review?reviewer_user_id=...` | `ieBaselineApi.approvals.getReview` | Approval review | Load approval metadata, attempt metadata, progress, questions, and answers |
+| PUT | `/approvals/{approval_id}/answers/{answer_id}` | `ieBaselineApi.approvals.updateAnswer` | Approval review | Let the assigned approver update an authoritative submitted answer |
+| POST | `/approvals/{approval_id}/decision` | `ieBaselineApi.approvals.decision` | Approval review | Approve or reject, store remarks, and release final score/status |
 
 ## Data Flow
 
@@ -357,6 +418,7 @@ Final results
   -> GET /home
   -> GET /modules/:moduleId/attempts
   -> display latest submitted/completed attempt
+  -> show approval waiting state while resultStatus is PENDING or IN_PROGRESS
 
 Assign modules
   -> useIEBaselineCurrentUser for assignee_id
@@ -374,6 +436,17 @@ User Management
   -> GET /users/:userId/delete-preview before delete
   -> DELETE /users/:userId after confirmation
   -> invalidate user search/list queries
+
+Approvals
+  -> useIEBaselineCurrentUser
+  -> GET /approvals/my-submissions for learner history
+  -> GET /approvals/inbox for assigned reviewer work
+  -> /iebaseline/approvals/:approvalId/review opens ExamModal approval mode
+  -> GET /approvals/:approvalId/review
+  -> POST /approvals/:approvalId/start when status is PENDING
+  -> PUT /approvals/:approvalId/answers/:answerId when reviewer edits answers
+  -> POST /approvals/:approvalId/decision
+  -> invalidate approval, home, attempt, and review queries
 ```
 
 ## Not Wired Yet

@@ -1,5 +1,60 @@
 # IE Baseline Progress
 
+## 2026-08-05 - Approval Module Frontend
+
+Implemented the frontend approval workflow for submitted checklist attempts
+using the live backend approval APIs.
+
+### Updated
+
+- Added approval routes:
+  - `/iebaseline/approvals/my-submissions`
+  - `/iebaseline/approvals/inbox`
+  - `/iebaseline/approvals/:approvalId/review`
+- Added the IE Baseline sidebar item `Approvals`.
+- Added `Approvals.tsx` with My Submissions and Approval Inbox views.
+- Approval lists show module, learner, approver, attempt number, approval
+  status, submitted/completed dates, remarks, and score when released by the
+  backend.
+- Inbox supports an actionable filter for `PENDING` and `IN_PROGRESS` requests,
+  plus explicit status filters.
+- Extended `src/pages/iebaseline/api.ts` with typed approval API wrappers for
+  listing, starting review, loading review detail, updating answers, and final
+  approve/reject decisions.
+- Updated result status typing to support both legacy result statuses and the
+  approval workflow statuses:
+
+```text
+Pending
+Passed
+Failed
+PENDING
+IN_PROGRESS
+APPROVED
+REJECTED
+CANCELLED
+```
+
+- Extended `ExamModal` so the same question/review UI now supports:
+  - learner editable attempt mode,
+  - learner read-only review mode,
+  - approver editable review mode.
+- Approver review loads `GET /approvals/{approval_id}/review`, starts pending
+  reviews with `POST /approvals/{approval_id}/start`, lets the approver edit
+  selected answers, shows evidence attachments read-only, captures reviewer
+  remarks, and completes the workflow with approve/reject actions.
+- Updated final results so pending approval attempts show waiting-for-approval
+  messaging instead of treating a hidden score as a normal scored result.
+
+### Verified
+
+- Functional approval workflow checks passed with the live backend.
+- Ran `npm run build:iebaseline`.
+- The sandboxed build hit the known Windows Vite `spawn EPERM` while loading
+  config.
+- The same build passed when rerun with approval for Vite/Node subprocess
+  spawning.
+
 ## 2026-08-04 - Submit Validation Question Number
 
 Updated the IE Baseline submit validation flow to use the backend-provided
