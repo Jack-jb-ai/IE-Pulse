@@ -1,5 +1,29 @@
 # IE Baseline Progress
 
+## 2026-08-06 - Notification Frontend Alignment
+
+Aligned the frontend documentation with the backend-owned notification module.
+No runtime notification UI or manual resend API wrapper was added.
+
+### Updated
+
+- Documented that approval request, approved, and rejected emails are sent by
+  the backend after successful submit and decision commits.
+- Clarified that the frontend must not build recipient email addresses, email
+  subjects, or email bodies.
+- Marked `POST /api/iebaseline/notifications/send-email` as intentionally
+  unwired for v1 because normal approval notification delivery is automatic.
+- Updated both the markdown developer doc and the in-app `DeveloperDocs.tsx`
+  reference so they stay in sync.
+
+### Verified
+
+- Ran `npm run build:iebaseline`.
+- The sandboxed build hit the known Windows Vite `spawn EPERM` while loading
+  config.
+- The same build passed when rerun with approval for Vite/Node subprocess
+  spawning.
+
 ## 2026-08-05 - RBAC Route Access and Approval UX Cleanup
 
 Implemented the IE Baseline frontend RBAC pass using
