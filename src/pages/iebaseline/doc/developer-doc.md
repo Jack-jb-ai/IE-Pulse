@@ -169,6 +169,12 @@ API calls:
   * `PUT /approvals/{approval_id}/answers/{answer_id}`
   * `POST /approvals/{approval_id}/decision`
 
+Notification emails are backend-owned. The frontend does not build recipient
+email addresses, email subjects, or email bodies, and it does not call the
+manual notification endpoint in the normal approval workflow. Approval request,
+approved, and rejected emails are sent by the backend after successful submit
+and decision commits.
+
 Actions and triggers:
 
 | Trigger | Condition | Result | API impact |
@@ -389,6 +395,11 @@ Actions and triggers:
 | PUT | `/approvals/{approval_id}/answers/{answer_id}` | `ieBaselineApi.approvals.updateAnswer` | Approval review | Let the assigned approver update an authoritative submitted answer |
 | POST | `/approvals/{approval_id}/decision` | `ieBaselineApi.approvals.decision` | Approval review | Approve or reject, store remarks, and release final score/status |
 
+Notification endpoint note: `POST /notifications/send-email` is intentionally
+not wrapped in `ieBaselineApi` for v1 because approval notification emails are
+sent automatically by the backend. Add a wrapper only if a future manual resend
+UI is required.
+
 ## Data Flow
 
 ```text
@@ -447,12 +458,20 @@ Approvals
   -> PUT /approvals/:approvalId/answers/:answerId when reviewer edits answers
   -> POST /approvals/:approvalId/decision
   -> invalidate approval, home, attempt, and review queries
+
+Notifications
+  -> backend sends approval request email after submit commit
+  -> backend sends approved/rejected email after decision commit
+  -> frontend shows submit/decision outcome only and does not block on email delivery
 ```
 
 ## Not Wired Yet
 
 These backend or documented capabilities are not active frontend behavior yet:
 
+* Manual notification resend endpoint:
+  `POST /api/iebaseline/notifications/send-email`. Backend automatic approval
+  emails are the v1 behavior, so no frontend resend UI or API wrapper is wired.
 * Legacy module-name checklist endpoint:
   `GET /api/iebaseline/modules/{moduleName}/questions`.
 * Admin create/edit/save module APIs. The current edit/admin pages still use

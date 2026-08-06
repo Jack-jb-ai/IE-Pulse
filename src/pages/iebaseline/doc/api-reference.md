@@ -2358,6 +2358,80 @@ Common approval errors:
 { "detail": "Approval is already completed" }
 ```
 
+## Notification Module
+
+Notification APIs send backend-rendered email through the corporate SMTP server.
+Approval workflows already send notifications automatically after successful
+database commits, so manual sends are optional.
+
+### POST /api/iebaseline/notifications/send-email
+
+Sends one approval notification email. This endpoint intentionally does not use
+route-level RBAC or `current_user_id`, but it applies minimum protection by
+requiring `senderUserId` to exist in `user_master`.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | Main application authentication |
+| Route RBAC | None |
+| Request body | JSON object |
+
+```json
+{
+  "senderUserId": 5,
+  "recipientUserId": 1,
+  "purpose": "APPROVAL_REQUEST",
+  "approvalId": 7,
+  "context": {}
+}
+```
+
+Supported `purpose` values:
+
+```text
+APPROVAL_REQUEST
+APPROVAL_APPROVED
+APPROVAL_REJECTED
+```
+
+Validation:
+
+* `senderUserId` is required and must exist in `user_master`.
+* `recipientUserId` is required, must exist in `user_master`, and must have a non-empty `email`.
+* `approvalId` is required for approval purposes.
+* For approval purposes, the backend loads approval, module, learner, approver, and email data from trusted tables.
+* `context` is reserved for optional future placeholders and cannot override authoritative approval data.
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Email successfully sent",
+  "purpose": "APPROVAL_REQUEST",
+  "senderUserId": 5,
+  "recipientUserId": 1
+}
+```
+
+### Error Responses
+
+```json
+{ "detail": "senderUserId is required" }
+```
+
+```json
+{ "detail": "Sender user not found" }
+```
+
+```json
+{ "detail": "Recipient email is required" }
+```
+
 ## Module Attachments
 
 Module attachments are stored on the backend machine under the `.env`

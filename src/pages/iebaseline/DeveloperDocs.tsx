@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowDownAZ, ArrowUpAZ, BookOpen, GitBranch, Layers, Route, ServerCog, type LucideIcon } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, BookOpen, GitBranch, Layers, Mail, Route, ServerCog, type LucideIcon } from 'lucide-react';
 
 const routes = [
   { path: '/iebaseline', page: 'IEBaseline.tsx', purpose: 'Learner dashboard for assigned modules' },
@@ -26,6 +26,13 @@ const identityFlow = [
   'VITE_IEBASELINE_USER_ID_OVERRIDE can explicitly supply a temporary staging user ID and skip AD email resolution.',
   'Learner pages block their user-scoped API calls until ieBaselineUserId is available.',
   'There is no hardcoded demo-user fallback.',
+];
+
+const notificationFlow = [
+  'Approval request emails are sent by the backend after a successful attempt submit commit.',
+  'Approved and rejected emails are sent by the backend after a successful approval decision commit.',
+  'The frontend does not build recipient email addresses, email subjects, or email bodies.',
+  'The manual notification endpoint is intentionally not wrapped or exposed in v1.',
 ];
 
 const pages = [
@@ -482,11 +489,13 @@ const flow = [
   'Module overview loads GET /home, finds the matching assignment, and opens ExamModal.',
   'ExamModal starts/resumes an attempt, loads questions, saves or clears answers, then submits.',
   'Submit navigates to /iebaseline/module/:moduleId/results with the submit result in navigation state.',
+  'Backend sends the approval request notification after the submit workflow commits.',
   'Final results reloads home and attempt history, then displays the latest submitted/completed attempt or approval waiting state.',
   'Assign modules loads users/modules/user assignments, saves changes, then invalidates IE Baseline queries.',
   'User Management searches users, loads full profiles for edits/deletes, and writes through dedicated user_master APIs.',
   'Approvals loads my-submissions and inbox requests for the resolved user.',
   'Approval review loads the review payload, starts pending approvals, saves approver answer edits, and posts the final decision.',
+  'Backend sends approved or rejected notification after the decision workflow commits.',
 ];
 
 const usedByOptions = ['All', 'Approval Review', 'Approvals', 'Assign Modules', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'User Management'];
@@ -731,6 +740,20 @@ export default function DeveloperDocs() {
             </div>
           </TabsContent>
         </Tabs>
+
+        <Card className="border-border/60 bg-background/70 p-5">
+          <SectionTitle icon={Mail} title="Notifications" description="Frontend alignment for backend-owned approval email delivery." />
+          <div className="grid gap-2 md:grid-cols-2">
+            {notificationFlow.map((item) => (
+              <div key={item} className="rounded-md border border-border/50 bg-muted/20 p-3 text-sm text-muted-foreground">
+                {item}
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 rounded-md border border-border/50 bg-muted/20 p-3 text-sm text-muted-foreground">
+            <span className="font-mono text-foreground">POST /notifications/send-email</span> is not listed in the active API table because approval emails are automatic. Add a typed wrapper only if a future manual resend UI is required.
+          </div>
+        </Card>
 
         <Card className="border-border/60 bg-muted/20 p-4">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
