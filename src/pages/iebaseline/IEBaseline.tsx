@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, CheckCircle2, Clock, PlayCircle, UserCircle } from 'lucide-react';
+import { BookOpen, CheckCircle2, ClipboardList, Clock, PlayCircle, UserCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ieBaselineApi, type IEBaselineHomeAssignment } from './api';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
@@ -180,6 +180,12 @@ export default function IEBaseline() {
             <BookOpen className="w-5 h-5 text-primary" />
             Assigned Modules
           </h2>
+          <Button asChild variant="outline" size="sm" className="gap-2">
+            <Link to="/iebaseline/attempts">
+              <ClipboardList className="h-4 w-4" />
+              Previous Attempts
+            </Link>
+          </Button>
         </div>
 
         <Card className="border-border/50 bg-background/40 backdrop-blur-sm overflow-hidden">

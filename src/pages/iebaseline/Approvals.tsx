@@ -310,7 +310,7 @@ function ApprovalRow({ approval, mode }: { approval: IEBaselineApprovalListItem;
           </Button>
         ) : (
           <Button asChild variant="outline" className="gap-2">
-            <Link to={`/iebaseline/module/${approval.moduleId}/results`}>
+            <Link to={`/iebaseline/attempts/${approval.attemptId}/results`}>
               <Eye className="h-4 w-4" />
               Result
             </Link>

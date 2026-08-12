@@ -69,4 +69,13 @@ describe('IE Baseline API protected actor params', () => {
     expect(fetchMock.mock.calls[2][0]).toBe('/ietools/iebaseline/api/attempts/101/questions/202/answer?current_user_id=7');
     expect(fetchMock.mock.calls[3][0]).toBe('/ietools/iebaseline/api/attempts/101/submit?current_user_id=7');
   });
+
+  it('loads user attempt history with an optional module filter', async () => {
+    await ieBaselineApi.attempts.list(7);
+    await ieBaselineApi.attempts.list(7, 3);
+
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock.mock.calls[0][0]).toBe('/ietools/iebaseline/api/attempts?user_id=7');
+    expect(fetchMock.mock.calls[1][0]).toBe('/ietools/iebaseline/api/attempts?user_id=7&module_id=3');
+  });
 });

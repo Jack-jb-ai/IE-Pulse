@@ -32,6 +32,7 @@ import IEBaseline from "@/pages/iebaseline/IEBaseline";
 import IEBaselineEdit from "@/pages/iebaseline/IEBaselineEdit";
 import ModuleAdmin from "@/pages/iebaseline/ModuleAdmin";
 import ModuleOverview from "@/pages/iebaseline/ModuleOverview";
+import PreviousAttempts from "@/pages/iebaseline/PreviousAttempts";
 import UserManagement from "@/pages/iebaseline/UserManagement";
 import IPKConfig from "@/pages/ipk/IPKConfig";
 import IPKDashboard from "@/pages/ipk/IPKDashboard";
@@ -207,6 +208,8 @@ function AppShell() {
               <Route path="/iebaseline/approvals/:approvalId/review" element={<GuardIEBaseline><ApprovalReviewRoute /></GuardIEBaseline>} />
               <Route path="/iebaseline/users" element={<GuardIEBaseline><UserManagement /></GuardIEBaseline>} />
               <Route path="/iebaseline/developer-docs" element={<GuardIEBaseline><DeveloperDocs /></GuardIEBaseline>} />
+              <Route path="/iebaseline/attempts" element={<GuardIEBaseline><PreviousAttempts /></GuardIEBaseline>} />
+              <Route path="/iebaseline/attempts/:attemptId/results" element={<GuardIEBaseline><FinalResults /></GuardIEBaseline>} />
               <Route path="/iebaseline/module/:moduleId/results" element={<GuardIEBaseline><FinalResults /></GuardIEBaseline>} />
               <Route path="/iebaseline/module/:moduleId" element={<GuardIEBaseline><ModuleOverview /></GuardIEBaseline>} />
               <Route path="/iebaseline/admin/:moduleId" element={<GuardIEBaseline><ModuleAdmin /></GuardIEBaseline>} />

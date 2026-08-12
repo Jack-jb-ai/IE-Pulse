@@ -184,6 +184,7 @@ export interface IEBaselineAttemptProgress {
 export interface IEBaselineAttempt {
   attemptId: number;
   moduleId: number;
+  moduleName?: string | null;
   attemptNo: number;
   attemptStatus: IEBaselineExamAttemptStatus;
   resultStatus: IEBaselineExamResultStatus;
@@ -580,6 +581,13 @@ export const ieBaselineApi = {
     },
   },
   attempts: {
+    list: async (userId: number, moduleId?: number) => {
+      const data = await get<IEBaselineAttemptHistoryResponse>(
+        appendQuery('/attempts', { user_id: userId, module_id: moduleId }),
+      );
+
+      return Array.isArray(data) ? data : data.attempts;
+    },
     get: (attemptId: number) =>
       get<IEBaselineAttempt>(`/attempts/${encodeURIComponent(String(attemptId))}`),
     questions: {

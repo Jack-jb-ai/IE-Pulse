@@ -1428,14 +1428,14 @@ POST /api/iebaseline/modules/3/attempts/start?user_id=1
 * Do not reuse `Completed` or `Submitted` attempts for editable starts or
   retakes. Those attempts remain available for read-only review through attempt
   history and attempt questions.
-* Allow a new editable attempt even when the related assignment status is
-  already `Completed`.
-* When creating a fresh editable retake for an assignment whose stored status is
-  `Completed`, reset `user_checklist_status.status` to `Incomplete` so the home
-  endpoint's `raw_status` reflects the active retake.
-* After `POST /api/iebaseline/attempts/{attempt_id}/submit`, the frontend may
-  immediately call this start endpoint again for a retake. The backend must
-  return a fresh `In Progress` attempt rather than the just-completed attempt.
+* Require an active `user_checklist_status` row for the learner and module before
+  creating or resuming an editable attempt.
+* Reject editable starts while a submitted attempt for the same learner/module
+  is still waiting for approval with result status `PENDING` or `IN_PROGRESS`.
+* After an attempt is `REJECTED`, keep the assignment active and allow a fresh
+  `In Progress` retry.
+* After an attempt is `APPROVED`, the assignment is deleted and this endpoint
+  must reject new starts until the user is assigned again.
 
 ### Success Response
 
@@ -1898,9 +1898,12 @@ The backend should:
 * Store `score`, `correct_answers`, `submitted_at`, and `completed_at` on
   `user_exam_attempt` for non-approval modules and approval final decisions.
 * Store `correct_answers` as `0` when scoring is numeric-only.
-* Mark the related `user_checklist_status` row `Completed` after scoring
-  completes for non-approval modules or after approval decision for
-  approval-required modules.
+* For approval-required modules, delete the active `user_checklist_status` row
+  after an `APPROVED` decision by matching the approved attempt's `user_id` and
+  `module_id`. Keep the assignment active after `REJECTED` so the learner can
+  retry.
+* Deleting the active assignment must not delete `user_exam_attempt`,
+  `user_exam_answer`, approval request, or attachment history.
 * For approval-required modules, set `resultStatus` to `PENDING` on submit and
   to `APPROVED` or `REJECTED` on decision.
 
@@ -1924,30 +1927,37 @@ The backend should expect this request sequence from the current frontend:
 After a successful submit, the frontend redirects learners to:
 
 ```text
-/ietools/iebaseline/module/{module_id}/results
+/ietools/iebaseline/attempts/{attempt_id}/results
 ```
 
-The page shows the submitted attempt's score, completion timestamp, and
-pass/fail result. The backend remains authoritative for `resultStatus`.
+The page shows the selected attempt's score, completion timestamp, result, and
+question-level saved answers/scores. The backend remains authoritative for
+`resultStatus`.
 
 Current frontend behavior:
 
 * Uses the `attempt` returned by this submit endpoint for immediate rendering.
-* Refetches `GET /api/iebaseline/modules/{module_id}/attempts?user_id={user_id}`
-  so refreshes and direct links can load the latest submitted result. This
-  endpoint is required for reliable Final Results page behavior outside the
-  immediate post-submit navigation.
+* Refetches `GET /api/iebaseline/attempts/{attempt_id}/questions` so refreshes
+  and direct links can load the exact selected attempt and its saved answers.
+* The legacy `/ietools/iebaseline/module/{module_id}/results` route may still
+  recover the latest submitted/completed module attempt through
+  `GET /api/iebaseline/modules/{module_id}/attempts?user_id={user_id}`, but new
+  navigation should prefer the attempt-specific route.
 * Calls `GET /api/iebaseline/home?user_id={user_id}` for user and module
   display context. The backend contract path is `/api/iebaseline/home`; the
   frontend may call it through a mounted/proxied path such as
   `/ietools/iebaseline/api/home`.
-* Uses `user.name` for the display name, `user.position` for the role/title, and
-  the matching `assignments[].module_name` for the current module label.
+* Uses `user.name` for the display name and `user.position` for the role/title
+  when available. Module label comes from the attempt/detail payload first,
+  falling back to active assignment context only when that assignment still
+  exists.
 * Displays pending status when the backend returns `resultStatus: "PENDING"`.
 * Does not calculate pass/fail from `score` in React.
 * If the backend returns `attemptStatus: "Submitted"` and `score: null`, the
   result is waiting for approval and the frontend should show approval status
   rather than a final score.
+* Back buttons navigate to the previous in-app route when available and fall
+  back to `/ietools/iebaseline` on direct entry.
 
 Future backend requirement:
 
@@ -2005,20 +2015,70 @@ Status: `400 Bad Request`
 }
 ```
 
+## GET /api/iebaseline/attempts
+
+Lists attempts for one user, optionally filtered by module.
+
+Status: **Backend change requested**
+
+This endpoint backs the frontend Previous Attempts page. It must not require an
+active `user_checklist_status` row, because approved modules intentionally
+disappear from the active assignment dashboard.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | Main application authentication; resolved learner query required |
+| Query parameter | `user_id`, required integer |
+| Query parameter | `module_id`, optional integer |
+| Request body | None |
+
+### Example Requests
+
+```http
+GET /api/iebaseline/attempts?user_id=1
+GET /api/iebaseline/attempts?user_id=1&module_id=3
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "attempts": [
+    {
+      "attemptId": 15,
+      "moduleId": 3,
+      "moduleName": "Order to Cash",
+      "attemptNo": 2,
+      "attemptStatus": "Completed",
+      "resultStatus": "APPROVED",
+      "answeredQuestions": 20,
+      "totalQuestions": 20,
+      "correctAnswers": 0,
+      "score": 72.5,
+      "progressPercentage": 100,
+      "startedAt": "2026-08-05T09:00:00+08:00",
+      "lastSavedAt": "2026-08-05T10:20:00+08:00",
+      "submittedAt": "2026-08-05T10:00:00+08:00",
+      "completedAt": "2026-08-05T10:20:00+08:00"
+    }
+  ]
+}
+```
+
 ## GET /api/iebaseline/modules/{module_id}/attempts
 
 Lists attempts for one user/module.
 
 Status: **Implemented**
 
-This endpoint is required by the frontend Final Results page for refresh,
-direct-link, and new-tab support. Immediately after submit, the frontend can
-render from the `POST /api/iebaseline/attempts/{attempt_id}/submit` response
-passed through router state. That router state is memory-only and is lost when
-the learner refreshes the browser, opens the results URL directly, copies the
-URL into a new tab, or returns to the page later. In those cases, the frontend
-only has `{module_id}` from the route and must call this endpoint with
-`user_id` to recover the latest submitted result.
+This endpoint remains available for module-scoped review flows and the legacy
+module results route. New attempt result navigation should use
+`/iebaseline/attempts/{attempt_id}/results` and
+`GET /api/iebaseline/attempts/{attempt_id}/questions`.
 
 The frontend selects the latest attempt where `attemptStatus` is `Completed` or
 `Submitted`, ordered by `completedAt`, then `submittedAt`, then `lastSavedAt`,

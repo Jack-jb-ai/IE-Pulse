@@ -9,7 +9,9 @@ import { ArrowDownAZ, ArrowUpAZ, BookOpen, GitBranch, Layers, Mail, Route, Serve
 const routes = [
   { path: '/iebaseline', page: 'IEBaseline.tsx', purpose: 'Learner dashboard for assigned modules' },
   { path: '/iebaseline/module/:moduleId', page: 'ModuleOverview.tsx', purpose: 'Module overview and checklist entry' },
-  { path: '/iebaseline/module/:moduleId/results', page: 'FinalResults.tsx', purpose: 'Final submitted/completed attempt results' },
+  { path: '/iebaseline/attempts', page: 'PreviousAttempts.tsx', purpose: 'Learner attempt history across active and completed modules' },
+  { path: '/iebaseline/attempts/:attemptId/results', page: 'FinalResults.tsx', purpose: 'Selected attempt answer and score results' },
+  { path: '/iebaseline/module/:moduleId/results', page: 'FinalResults.tsx', purpose: 'Legacy latest module attempt result route' },
   { path: '/iebaseline/assign', page: 'AssignModules.tsx', purpose: 'User/module assignment management' },
   { path: '/iebaseline/approvals/my-submissions', page: 'Approvals.tsx', purpose: 'Learner approval request history' },
   { path: '/iebaseline/approvals/inbox', page: 'Approvals.tsx', purpose: 'Approver inbox for assigned checklist reviews' },
@@ -48,6 +50,7 @@ const pages = [
       'Displays progress, derived status, owner, assigned by, assigned date, updated date, and question count.',
       'Expands a module row to show details and actions.',
       'Links each assignment to the module overview route.',
+      'Links to Previous Attempts for completed, rejected, and pending attempt history.',
     ],
     apis: ['POST /users/resolve-current', 'GET /home?user_id=...'],
     actions: [
@@ -101,8 +104,8 @@ const pages = [
       {
         trigger: 'View Result',
         condition: 'Shown when assignment.status is Completed.',
-        result: 'Routes to /iebaseline/module/{module_id}/results.',
-        api: 'Target page calls GET /home and GET /modules/{module_id}/attempts.',
+        result: 'Routes to the legacy latest module result route.',
+        api: 'Target page calls GET /modules/{module_id}/attempts, then GET /attempts/{attempt_id}/questions.',
       },
       {
         trigger: 'Retake Module',
@@ -130,13 +133,14 @@ const pages = [
       'Loads attempt questions with saved answer state.',
       'Saves selected answers and clears answers when needed.',
       'Lists, uploads, deletes, and downloads answer attachments when questions require or allow evidence.',
-      'Submits the attempt, invalidates related query caches, and navigates to final results.',
+      'Submits the attempt, invalidates related query caches, and navigates to attempt-specific final results.',
       'Supports review-only mode for completed/submitted attempts.',
       'Supports approval review mode with editable approver answers, read-only evidence downloads, reviewer remarks, and approve/reject decisions.',
     ],
     apis: [
       'POST /modules/{module_id}/attempts/start',
       'GET /modules/{module_id}/attempts?user_id=...',
+      'GET /attempts?user_id=...',
       'GET /attempts/{attempt_id}/questions',
       'PUT /attempts/{attempt_id}/questions/{question_id}/answer',
       'DELETE /attempts/{attempt_id}/questions/{question_id}/answer',
@@ -215,26 +219,48 @@ const pages = [
   },
   {
     name: 'Final Results',
-    route: '/iebaseline/module/:moduleId/results',
+    route: '/iebaseline/attempts/:attemptId/results',
     file: 'FinalResults.tsx',
-    owner: 'Submitted checklist outcome display',
-    source: 'Home API for learner/module context and module attempt history API for stored attempts.',
+    owner: 'Selected checklist attempt outcome display',
+    source: 'Attempt question API for selected attempt answers and scores; home API only supplies learner context.',
     features: [
       'Resolves the active learner through useIEBaselineCurrentUser.',
-      'Reads moduleId from the URL.',
-      'Loads learner context and module attempt history.',
-      'Selects the latest submitted or completed attempt.',
+      'Reads attemptId from the URL.',
+      'Loads the selected attempt and its saved question answers.',
       'Uses submit navigation state as an immediate fallback after finishing a checklist.',
-      'Displays result status, score, attempt number, answered count, learner details, and completion date.',
+      'Displays result status, score, attempt number, answered count, learner details, completion date, selected answers, and per-question scores.',
       'Shows waiting-for-approval messaging while resultStatus is PENDING or IN_PROGRESS and the backend hides score.',
+      'Uses contextual Back navigation, falling back to /iebaseline on direct entry.',
     ],
-    apis: ['POST /users/resolve-current', 'GET /home?user_id=...', 'GET /modules/{module_id}/attempts?user_id=...'],
+    apis: ['POST /users/resolve-current', 'GET /home?user_id=...', 'GET /attempts/{attempt_id}/questions'],
     actions: [
       {
-        trigger: 'Return to Module',
+        trigger: 'Back',
         condition: 'Shown at top and bottom of the results page.',
-        result: 'Routes to /iebaseline/module/{moduleId}.',
-        api: 'No direct call; target page calls GET /home.',
+        result: 'Navigates to the previous route when available, otherwise /iebaseline.',
+        api: 'No API call.',
+      },
+    ],
+  },
+  {
+    name: 'Previous Attempts',
+    route: '/iebaseline/attempts',
+    file: 'PreviousAttempts.tsx',
+    owner: 'Learner attempt history',
+    source: 'User-level attempt history API backed by user_exam_attempt.',
+    features: [
+      'Resolves the active learner through useIEBaselineCurrentUser.',
+      'Loads all attempts for the learner, independent of active assignments.',
+      'Shows module, attempt number, result status, score, and completion date.',
+      'Routes each row to /iebaseline/attempts/{attemptId}/results.',
+    ],
+    apis: ['POST /users/resolve-current', 'GET /attempts?user_id=...'],
+    actions: [
+      {
+        trigger: 'View',
+        condition: 'Visible for each attempt row.',
+        result: 'Routes to the selected attempt result page.',
+        api: 'Target page calls GET /attempts/{attempt_id}/questions.',
       },
     ],
   },
@@ -250,7 +276,7 @@ const pages = [
       'Lists learner-submitted approval requests with status, dates, remarks, and released score.',
       'Lists assigned approver requests with an actionable PENDING/IN_PROGRESS filter plus explicit status filters.',
       'Routes inbox rows to the full-screen approval review workflow.',
-      'Routes submission rows to the module result page.',
+      'Routes submission rows to the selected attempt result page.',
     ],
     apis: [
       'POST /users/resolve-current',
@@ -286,8 +312,8 @@ const pages = [
       {
         trigger: 'Result',
         condition: 'Visible for my submission rows.',
-        result: 'Routes to /iebaseline/module/{moduleId}/results.',
-        api: 'Target page calls GET /home and GET /modules/{module_id}/attempts.',
+        result: 'Routes to /iebaseline/attempts/{attemptId}/results.',
+        api: 'Target page calls GET /attempts/{attempt_id}/questions.',
       },
     ],
   },
@@ -452,7 +478,7 @@ const pages = [
 
 const apiCalls = [
   { method: 'POST', path: '/users/resolve-current', wrapper: 'users.resolveCurrent', usedBy: 'Dashboard, Module Overview, Final Results, Assign Modules', purpose: 'Resolve AD or staging current user to user_master.user_id' },
-  { method: 'GET', path: '/home?user_id=...', wrapper: 'home.get', usedBy: 'Dashboard, Module Overview, Final Results', purpose: 'Load learner profile and assigned modules' },
+  { method: 'GET', path: '/home?user_id=...', wrapper: 'home.get', usedBy: 'Dashboard, Module Overview, Final Results', purpose: 'Load learner profile and active assigned modules' },
   { method: 'GET', path: '/users', wrapper: 'users.list', usedBy: 'Assign Modules', purpose: 'Load assignable users' },
   { method: 'GET', path: '/users/search?q=...', wrapper: 'users.search', usedBy: 'User Management', purpose: 'Search users by name, WD ID, or email' },
   { method: 'GET', path: '/users/{user_id}', wrapper: 'users.get', usedBy: 'User Management', purpose: 'Load one full user profile' },
@@ -465,9 +491,10 @@ const apiCalls = [
   { method: 'GET', path: '/users/{user_id}/modules', wrapper: 'users.modules.get', usedBy: 'Assign Modules', purpose: 'Load selected user module IDs' },
   { method: 'PUT', path: '/users/{user_id}/modules', wrapper: 'users.modules.update', usedBy: 'Assign Modules', purpose: 'Replace selected user module assignments' },
   { method: 'POST', path: '/modules/{module_id}/attempts/start', wrapper: 'modules.attempts.start', usedBy: 'Exam Modal', purpose: 'Start or resume an attempt' },
-  { method: 'GET', path: '/modules/{module_id}/attempts?user_id=...', wrapper: 'modules.attempts.list', usedBy: 'Exam Modal, Final Results', purpose: 'Load attempt history' },
+  { method: 'GET', path: '/modules/{module_id}/attempts?user_id=...', wrapper: 'modules.attempts.list', usedBy: 'Exam Modal, Final Results', purpose: 'Load module-scoped attempt history' },
+  { method: 'GET', path: '/attempts?user_id=...', wrapper: 'attempts.list', usedBy: 'Previous Attempts', purpose: 'Load user attempt history independent of active assignments' },
   { method: 'GET', path: '/attempts/{attempt_id}', wrapper: 'attempts.get', usedBy: 'Available wrapper', purpose: 'Load one attempt' },
-  { method: 'GET', path: '/attempts/{attempt_id}/questions', wrapper: 'attempts.questions.get', usedBy: 'Exam Modal', purpose: 'Load attempt questions and saved answers' },
+  { method: 'GET', path: '/attempts/{attempt_id}/questions', wrapper: 'attempts.questions.get', usedBy: 'Exam Modal, Final Results', purpose: 'Load attempt questions and saved answers' },
   { method: 'PUT', path: '/attempts/{attempt_id}/questions/{question_id}/answer', wrapper: 'attempts.questions.saveAnswer', usedBy: 'Exam Modal', purpose: 'Save selected answer' },
   { method: 'DELETE', path: '/attempts/{attempt_id}/questions/{question_id}/answer', wrapper: 'attempts.questions.clearAnswer', usedBy: 'Exam Modal', purpose: 'Clear selected answer' },
   { method: 'GET', path: '/modules/{module_id}/attachments?user_id=...&answer_id=...', wrapper: 'modules.attachments.list', usedBy: 'Exam Modal', purpose: 'List evidence files for one answer' },
@@ -488,9 +515,9 @@ const flow = [
   'Dashboard loads GET /home and links to module overview.',
   'Module overview loads GET /home, finds the matching assignment, and opens ExamModal.',
   'ExamModal starts/resumes an attempt, loads questions, saves or clears answers, then submits.',
-  'Submit navigates to /iebaseline/module/:moduleId/results with the submit result in navigation state.',
+  'Submit navigates to /iebaseline/attempts/:attemptId/results with the submit result in navigation state.',
   'Backend sends the approval request notification after the submit workflow commits.',
-  'Final results reloads home and attempt history, then displays the latest submitted/completed attempt or approval waiting state.',
+  'Final results reloads the selected attempt questions, then displays that attempt answer and score detail.',
   'Assign modules loads users/modules/user assignments, saves changes, then invalidates IE Baseline queries.',
   'User Management searches users, loads full profiles for edits/deletes, and writes through dedicated user_master APIs.',
   'Approvals loads my-submissions and inbox requests for the resolved user.',
@@ -498,7 +525,7 @@ const flow = [
   'Backend sends approved or rejected notification after the decision workflow commits.',
 ];
 
-const usedByOptions = ['All', 'Approval Review', 'Approvals', 'Assign Modules', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'User Management'];
+const usedByOptions = ['All', 'Approval Review', 'Approvals', 'Assign Modules', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'Previous Attempts', 'User Management'];
 
 function methodClass(method: string) {
   switch (method) {

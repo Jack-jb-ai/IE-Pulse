@@ -209,12 +209,13 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home', userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active', userId], refetchType: 'none' }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', moduleId, 'attempts', userId] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', 'list', userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', attemptId, 'questions', userId] }),
       ]);
 
       onClose();
-      navigate(`/iebaseline/module/${moduleId}/results`, {
+      navigate(`/iebaseline/attempts/${data.attempt.attemptId}/results`, {
         state: { submitResult: data },
       });
     },
@@ -248,6 +249,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals'] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'home'] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'modules', data.attempt.moduleId, 'attempts'] }),
+        queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts'] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', data.attempt.attemptId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'attempts', data.attempt.attemptId, 'questions', userId] }),
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals', approvalId, 'review', userId] }),

@@ -1012,7 +1012,6 @@ A user may have multiple attempts for the same module.
 CREATE TABLE user_exam_attempt (
     attempt_id BIGSERIAL PRIMARY KEY,
 
-    user_checklist_status_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
     module_id BIGINT NOT NULL,
 
@@ -1037,12 +1036,6 @@ CREATE TABLE user_exam_attempt (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT fk_user_exam_attempt_assignment
-        FOREIGN KEY (user_checklist_status_id)
-        REFERENCES user_checklist_status(id)
-        ON UPDATE CASCADE
-        ON DELETE CASCADE,
 
     CONSTRAINT fk_user_exam_attempt_user
         FOREIGN KEY (user_id)
@@ -1087,7 +1080,6 @@ CREATE TABLE user_exam_attempt (
 | Column                     | Data Type             | Constraints           | Description                                        |
 | -------------------------- | --------------------- | --------------------- | -------------------------------------------------- |
 | `attempt_id`               | `BIGSERIAL`           | Primary key           | Unique identifier for the exam attempt.            |
-| `user_checklist_status_id` | `BIGINT`              | Not null, foreign key | Assignment record associated with the attempt.     |
 | `user_id`                  | `BIGINT`              | Not null, foreign key | User taking the checklist.                         |
 | `module_id`                | `BIGINT`              | Not null, foreign key | Module being attempted.                            |
 | `attempt_no`               | `INTEGER`             | Not null, positive    | Attempt number for the user and module.            |
@@ -1107,6 +1099,7 @@ CREATE TABLE user_exam_attempt (
 ## Important Rules
 
 * A user may have multiple attempts for the same module.
+* Attempts are not foreign-keyed to `user_checklist_status`; active assignment rows control access only.
 * Each attempt must have a unique `attempt_no`.
 * `answered_questions` cannot exceed `total_questions`.
 * `correct_answers` cannot exceed `answered_questions`.
@@ -1317,9 +1310,6 @@ CREATE INDEX idx_user_exam_attempt_user
 CREATE INDEX idx_user_exam_attempt_module
     ON user_exam_attempt(module_id);
 
-CREATE INDEX idx_user_exam_attempt_assignment
-    ON user_exam_attempt(user_checklist_status_id);
-
 CREATE INDEX idx_user_exam_attempt_status
     ON user_exam_attempt(attempt_status);
 
@@ -1339,25 +1329,6 @@ CREATE INDEX idx_user_exam_answer_question
 ---
 
 # Table Relationships
-
-## Assignment to Attempt
-
-```text
-user_checklist_status.id
-    -> user_exam_attempt.user_checklist_status_id
-```
-
-One user-module assignment may have multiple exam attempts.
-
-```text
-user_checklist_status 1 ---- many user_exam_attempt
-```
-
-Deleting the assignment deletes its related attempts.
-
-Because answer rows belong to attempts, deleting the assignment also indirectly deletes the related answers.
-
----
 
 ## Attempt to Approval Request
 
@@ -1474,14 +1445,10 @@ user_id FK
 module_id FK
 status
 assignee_id FK
-    |
-    | user_checklist_status_id
-    v
 
 user_exam_attempt
 -----------------
 attempt_id PK
-user_checklist_status_id FK
 user_id FK
 module_id FK
 attempt_no
@@ -1807,7 +1774,7 @@ When the user submits:
 5. Update each `user_exam_answer`.
 6. Calculate the final attempt score.
 7. Update `user_exam_attempt`.
-8. Update `user_checklist_status` when the attempt is completed or passed.
+8. Leave `user_checklist_status` unchanged on submit; it is active access, not history.
 
 Example attempt update:
 
@@ -1825,28 +1792,20 @@ SET
 WHERE attempt_id = $1;
 ```
 
-Example assignment update:
+For approval-required modules, assignment cleanup happens at approval decision time:
 
 ```sql
-UPDATE user_checklist_status
-SET
-    status = 'Completed',
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = (
-    SELECT user_checklist_status_id
-    FROM user_exam_attempt
-    WHERE attempt_id = $1
-);
+DELETE FROM user_checklist_status assignment
+USING user_exam_attempt attempt
+WHERE attempt.attempt_id = $1
+  AND assignment.user_id = attempt.user_id
+  AND assignment.module_id = attempt.module_id
+  AND $2 = 'APPROVED';
 ```
 
-The application must define whether `user_checklist_status.status` becomes `Completed` when:
-
-* The attempt is submitted.
-* The attempt is fully processed.
-* The user passes.
-* The user completes all questions regardless of pass or fail.
-
-The selected business rule should be applied consistently by the backend.
+`REJECTED` attempts keep the active assignment so the learner can retry. Deleting
+the assignment must not delete `user_exam_attempt`, `user_exam_answer`, approval
+requests, or attachments.
 
 ---
 

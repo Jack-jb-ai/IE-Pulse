@@ -16,6 +16,8 @@ export const IE_BASELINE_ROUTE_PATTERNS = [
   '/iebaseline/approvals/:approvalId/review',
   '/iebaseline/users',
   '/iebaseline/developer-docs',
+  '/iebaseline/attempts',
+  '/iebaseline/attempts/:attemptId/results',
   '/iebaseline/module/:moduleId/results',
   '/iebaseline/module/:moduleId',
   '/iebaseline/admin/:moduleId',

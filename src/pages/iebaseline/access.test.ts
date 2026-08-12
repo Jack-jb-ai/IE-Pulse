@@ -16,6 +16,7 @@ describe('IE Baseline route access helpers', () => {
   it('matches dynamic IE Baseline module and approval routes', () => {
     expect(doesIEBaselineRouteMatch('/iebaseline/module/:moduleId', '/iebaseline/module/42')).toBe(true);
     expect(doesIEBaselineRouteMatch('/iebaseline/module/:moduleId/results', '/iebaseline/module/42/results')).toBe(true);
+    expect(doesIEBaselineRouteMatch('/iebaseline/attempts/:attemptId/results', '/iebaseline/attempts/15/results')).toBe(true);
     expect(doesIEBaselineRouteMatch('/iebaseline/approvals/:approvalId/review', '/iebaseline/approvals/99/review')).toBe(true);
     expect(doesIEBaselineRouteMatch('/iebaseline/module/:moduleId', '/iebaseline/module/42/results')).toBe(false);
   });

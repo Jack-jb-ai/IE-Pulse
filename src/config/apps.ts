@@ -235,6 +235,7 @@ export const APPS: AppConfig[] = [
     category: 'Learning & Development',
     navItems: [
       { label: 'Overview', to: '/iebaseline', icon: Home },
+      { label: 'Previous Attempts', to: '/iebaseline/attempts', icon: ClipboardList },
       { label: 'Edit', to: '/iebaseline/edit', icon: Pencil },
       { label: 'Assign', to: '/iebaseline/assign', icon: UserCheck },
       {

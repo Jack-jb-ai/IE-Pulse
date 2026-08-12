@@ -61,7 +61,9 @@ npm run build:iebaseline
 | --- | --- | --- |
 | `/iebaseline` | `IEBaseline.tsx` | Learner dashboard for assigned modules |
 | `/iebaseline/module/:moduleId` | `ModuleOverview.tsx` | Module overview and checklist entry |
-| `/iebaseline/module/:moduleId/results` | `FinalResults.tsx` | Final submitted/completed attempt results |
+| `/iebaseline/attempts` | `PreviousAttempts.tsx` | Learner attempt history |
+| `/iebaseline/attempts/:attemptId/results` | `FinalResults.tsx` | Selected attempt answer and score results |
+| `/iebaseline/module/:moduleId/results` | `FinalResults.tsx` | Legacy latest module attempt result route |
 | `/iebaseline/assign` | `AssignModules.tsx` | User/module assignment management |
 | `/iebaseline/approvals/my-submissions` | `Approvals.tsx` | Learner approval request history |
 | `/iebaseline/approvals/inbox` | `Approvals.tsx` | Approver inbox for assigned checklist reviews |
@@ -86,6 +88,7 @@ Features:
   updated date, and question count.
 * Expands each assigned module row for module details.
 * Navigates to `/iebaseline/module/:moduleId`.
+* Links to Previous Attempts for completed, rejected, and pending attempt history.
 
 API calls:
 
@@ -126,7 +129,7 @@ Actions and triggers:
 | --- | --- | --- | --- |
 | Start Module | Assignment is not `Completed` | Sets `activeExam = "start"` and opens `ExamModal` | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |
 | Review Module | Assignment is `Completed` | Sets `activeExam = "review"` and opens `ExamModal` in review-only mode | Indirectly calls `GET /modules/{module_id}/attempts` and `GET /attempts/{attempt_id}/questions` |
-| View Result | Assignment is `Completed` | Routes to `/iebaseline/module/{module_id}/results` | Target page calls `GET /home` and `GET /modules/{module_id}/attempts` |
+| View Result | Assignment is `Completed` | Routes to the legacy latest module result route | Target page calls `GET /modules/{module_id}/attempts`, then `GET /attempts/{attempt_id}/questions` |
 | Retake Module | Assignment is `Completed` | Sets `activeExam = "retake"` and opens `ExamModal` | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |
 | Back to Dashboard | Loaded module overview page | Routes to `/iebaseline` | No direct call; dashboard calls `GET /home` |
 
@@ -197,27 +200,51 @@ File: `src/pages/iebaseline/FinalResults.tsx`
 
 Features:
 
-* Reads `moduleId` from the route.
+* Reads `attemptId` from the route for the primary result flow.
 * Resolves the active learner through `useIEBaselineCurrentUser`.
-* Loads the learner home data for module/user context.
-* Loads attempt history and selects the latest submitted or completed attempt.
+* Loads the selected attempt and saved answer rows from the attempt questions API.
+* Uses home data only for learner display context when available.
 * Can use submit result passed through navigation state as an immediate fallback.
 * Shows result status, score, attempt number, answered question count, learner
-  details, and completion date.
+  details, completion date, selected answers, and per-question scores.
 * Treats `PENDING` and `IN_PROGRESS` approval results as waiting for approval;
   the score remains hidden while the backend returns `score = null`.
+* Back controls return to the previous in-app route when available and fall back
+  to `/iebaseline` on direct entry.
 
 API calls:
 
 * `POST /users/resolve-current`
 * `GET /home?user_id={user_id}`
-* `GET /modules/{module_id}/attempts?user_id={user_id}`
+* `GET /attempts/{attempt_id}/questions`
 
 Actions and triggers:
 
 | Trigger | Condition | Result | API impact |
 | --- | --- | --- | --- |
-| Return to Module | Top and bottom result page controls | Routes to `/iebaseline/module/{moduleId}` | No direct call; target page calls `GET /home` |
+| Back | Top and bottom result page controls | Returns to previous route, otherwise `/iebaseline` | No API call |
+
+### Previous Attempts
+
+File: `src/pages/iebaseline/PreviousAttempts.tsx`
+
+Features:
+
+* Resolves the active learner through `useIEBaselineCurrentUser`.
+* Loads attempt history independent of active assignment rows.
+* Shows module, attempt number, result status, score, and completion date.
+* Opens result detail for the exact selected attempt.
+
+API calls:
+
+* `POST /users/resolve-current`
+* `GET /attempts?user_id={user_id}`
+
+Actions and triggers:
+
+| Trigger | Condition | Result | API impact |
+| --- | --- | --- | --- |
+| View | Every attempt row | Routes to `/iebaseline/attempts/{attemptId}/results` | Target page calls `GET /attempts/{attempt_id}/questions` |
 
 ### Approvals
 
@@ -422,14 +449,19 @@ ExamModal
   -> POST or DELETE attachments when needed
   -> PUT or DELETE answer
   -> POST /attempts/:attemptId/submit
-  -> navigate /iebaseline/module/:moduleId/results
+  -> navigate /iebaseline/attempts/:attemptId/results
 
 Final results
   -> useIEBaselineCurrentUser
   -> GET /home
-  -> GET /modules/:moduleId/attempts
-  -> display latest submitted/completed attempt
+  -> GET /attempts/:attemptId/questions
+  -> display selected attempt answers and scores
   -> show approval waiting state while resultStatus is PENDING or IN_PROGRESS
+
+Previous attempts
+  -> useIEBaselineCurrentUser
+  -> GET /attempts?user_id=:userId
+  -> selected row opens /iebaseline/attempts/:attemptId/results
 
 Assign modules
   -> useIEBaselineCurrentUser for assignee_id
