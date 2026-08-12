@@ -9,7 +9,7 @@ fix needed.
   - Add search, filter by Status feature
 
 # Assign Module Revamp
-  - 
+  - Checkpoint 0812 before revamp
 
 # Module details page overhaul
   - Route : /ietools/iebaseline/module/<module_id>
