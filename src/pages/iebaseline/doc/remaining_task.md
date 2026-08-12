@@ -8,6 +8,9 @@ fix needed.
 # Home 
   - Add search, filter by Status feature
 
+# Assign Module Revamp
+  - 
+
 # Module details page overhaul
   - Route : /ietools/iebaseline/module/<module_id>
   - Currently we dont have a list showing all previous attempts. 
