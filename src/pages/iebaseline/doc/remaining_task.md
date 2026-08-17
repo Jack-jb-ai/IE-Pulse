@@ -22,7 +22,7 @@ fix needed.
 # Approval module
   - notification template, include HTML, buttons, links etc etc make it a little fancy
   - Rejected status makes score fixed at 0% instead of showing current score, missing retake button. do we need this...(UX)
- 
+
 # User
   - Create User flow fix, assign reports_to. When? 
   - Link other columns such as WD_ID etc

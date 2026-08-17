@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -11,15 +11,18 @@ import {
   Calendar,
   CheckCircle2,
   ChevronLeft,
+  ClipboardList,
   Clock,
   Eye,
   FileText,
+  Loader2,
   PlayCircle,
   RotateCcw,
   Trophy,
   UserCircle,
 } from 'lucide-react';
-import { ieBaselineApi, type IEBaselineHomeStatus } from './api';
+import { cn } from '@/lib/utils';
+import { ieBaselineApi, type IEBaselineAttemptHistoryItem, type IEBaselineHomeStatus } from './api';
 import ExamModal from './components/ExamModal';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
@@ -50,6 +53,23 @@ export default function ModuleOverview() {
   const error = currentUserResolveError ?? homeError;
 
   const assignment = data?.assignments.find((item) => String(item.module_id) === moduleId);
+
+  const {
+    data: attempts = [],
+    isLoading: isLoadingAttempts,
+    isError: isAttemptsError,
+    error: attemptsError,
+  } = useQuery({
+    queryKey: ['iebaseline', 'attempts', 'list', ieBaselineUserId, assignment?.module_id],
+    queryFn: () => ieBaselineApi.attempts.list(ieBaselineUserId!, assignment!.module_id),
+    enabled: Boolean(ieBaselineUserId && assignment),
+    refetchOnWindowFocus: false,
+  });
+
+  const sortedAttempts = useMemo(
+    () => [...attempts].sort((left, right) => getAttemptSortTime(right) - getAttemptSortTime(left)),
+    [attempts],
+  );
 
   const formatDate = (value: string) => {
     const date = new Date(value);
@@ -341,6 +361,13 @@ export default function ModuleOverview() {
         </div>
       </div>
 
+      <ModulePreviousAttempts
+        attempts={sortedAttempts}
+        isLoading={isLoadingAttempts}
+        isError={isAttemptsError}
+        error={attemptsError}
+      />
+
       {activeExam && (
         <ExamModal
           moduleId={assignment.module_id}
@@ -352,6 +379,135 @@ export default function ModuleOverview() {
       )}
     </div>
   );
+}
+
+function ModulePreviousAttempts({
+  attempts,
+  isLoading,
+  isError,
+  error,
+}: {
+  attempts: IEBaselineAttemptHistoryItem[];
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
+          <ClipboardList className="h-5 w-5 text-primary" />
+          Previous Attempts
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">Review submitted, approved, and rejected attempts for this module.</p>
+      </div>
+
+      <Card className="overflow-hidden border-border/60 bg-background/70 shadow-sm">
+        {isLoading ? (
+          <div className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            Loading previous attempts...
+          </div>
+        ) : isError ? (
+          <div className="border-destructive/20 bg-destructive/5 p-6">
+            <h3 className="text-sm font-semibold text-foreground">Unable to Load Previous Attempts</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {error instanceof Error ? error.message : 'Please check the IE Baseline API and try again.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="min-w-[760px]">
+              <div className="grid grid-cols-12 gap-4 border-b border-border/60 bg-muted/40 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+                <div className="col-span-4">Module</div>
+                <div className="col-span-2">Attempt</div>
+                <div className="col-span-2">Status</div>
+                <div className="col-span-2">Score</div>
+                <div className="col-span-1">Result Date</div>
+                <div className="col-span-1 text-right">Action</div>
+              </div>
+
+              {attempts.length === 0 && (
+                <div className="p-6 text-sm text-muted-foreground">No previous attempts are available for this module yet.</div>
+              )}
+
+              {attempts.map((attempt) => (
+                <div key={attempt.attemptId} className="grid grid-cols-12 items-center gap-4 border-b border-border/40 px-4 py-4 text-sm last:border-0">
+                  <div className="col-span-4 min-w-0">
+                    <p className="truncate font-medium text-foreground">{attempt.moduleName ?? `Module ${attempt.moduleId}`}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Module ID: {attempt.moduleId}</p>
+                  </div>
+                  <div className="col-span-2 font-medium text-foreground">#{attempt.attemptNo}</div>
+                  <div className="col-span-2">
+                    <Badge variant="outline" className={cn('border font-semibold', getResultStatusClass(attempt.resultStatus))}>
+                      {attempt.resultStatus}
+                    </Badge>
+                  </div>
+                  <div className="col-span-2 font-medium text-foreground">{formatAttemptScore(attempt.score)}</div>
+                  <div className="col-span-1 text-xs text-muted-foreground">{formatAttemptDate(getResultDate(attempt))}</div>
+                  <div className="col-span-1 text-right">
+                    <Button asChild size="sm" variant="ghost" className="gap-2">
+                      <Link to={`/iebaseline/attempts/${attempt.attemptId}/results`}>
+                        <Eye className="h-4 w-4" />
+                        View
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function getAttemptSortTime(attempt: IEBaselineAttemptHistoryItem) {
+  const value = getResultDate(attempt) ?? attempt.startedAt;
+  if (!value) return 0;
+
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getResultDate(attempt: IEBaselineAttemptHistoryItem) {
+  return attempt.completedAt ?? attempt.submittedAt ?? attempt.lastSavedAt;
+}
+
+function formatAttemptScore(value: number | null | undefined) {
+  if (value === null || value === undefined) return 'Pending';
+  return `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+}
+
+function formatAttemptDate(value: string | null | undefined) {
+  if (!value) return 'Pending';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+}
+
+function getResultStatusClass(status: string | null | undefined) {
+  switch (status) {
+    case 'APPROVED':
+    case 'Passed':
+      return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/25';
+    case 'REJECTED':
+    case 'Failed':
+      return 'bg-red-500/10 text-red-600 border-red-500/25';
+    case 'PENDING':
+    case 'IN_PROGRESS':
+    case 'Pending':
+      return 'bg-amber-500/10 text-amber-600 border-amber-500/25';
+    default:
+      return 'bg-muted text-muted-foreground border-border';
+  }
 }
 
 function getStatusPanelClass(status: IEBaselineHomeStatus) {
