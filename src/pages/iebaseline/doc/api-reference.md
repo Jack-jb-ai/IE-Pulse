@@ -193,13 +193,7 @@ Rules:
 ### Latest Attempt Selection
 
 When more than one `user_exam_attempt` exists for the same user and module, the
-home endpoint must use the most recent attempt using this ordering:
-
-1. Newest `completed_at`.
-2. Newest `submitted_at`.
-3. Newest `last_saved_at`.
-4. Newest `started_at`.
-5. Highest `attempt_no` as the deterministic final tie-breaker.
+home endpoint must use the row with the highest `attempt_id`.
 
 The latest attempt always wins for home page display, even if an older attempt
 was completed.
