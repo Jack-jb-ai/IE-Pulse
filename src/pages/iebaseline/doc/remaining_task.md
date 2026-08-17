@@ -5,11 +5,10 @@ fix needed.
   - As module count increase in the future, it might be difficult to assign module, might wanna add a filter/search module function. overall, needs rework for better UX.
   - important fix** : do not show 'User ID'
 
-# Home 
-  - Add search, filter by Status feature
-
-# Assign Module Revamp
-  - Checkpoint 0812 before revamp
+# Home
+  - Add Time remaining for each assignment, when assigned. 
+  - New days remaining beside status column.
+  - Make it more apparent, easy to know oh not much time left etc. 
 
 # Module details page overhaul
   - Route : /ietools/iebaseline/module/<module_id>
