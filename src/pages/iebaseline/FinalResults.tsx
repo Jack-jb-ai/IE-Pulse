@@ -323,7 +323,7 @@ function isResultAttempt(attempt: IEBaselineAttempt) {
   if (attempt.submittedAt || attempt.completedAt) return true;
   if (attempt.attemptStatus === 'Submitted' || attempt.attemptStatus === 'Completed' || attempt.attemptStatus === 'Rejected') return true;
 
-  return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'REJECTED', 'CANCELLED', 'Passed', 'Failed'].includes(attempt.resultStatus);
+  return ['APPROVED', 'REJECTED', 'CANCELLED', 'Passed', 'Failed'].includes(attempt.resultStatus);
 }
 
 function getModuleName(attempt: IEBaselineAttempt | undefined, assignmentName: string | undefined, questions: IEBaselineAttemptQuestion[]) {

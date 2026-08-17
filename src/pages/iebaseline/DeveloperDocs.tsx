@@ -61,7 +61,7 @@ const pages = [
         api: 'No direct call; target page calls GET /home.',
       },
       {
-        trigger: 'Start Module / Continue Module / View Submission / Retake Module / Review Material',
+        trigger: 'Start Module / Continue Module / View Module / Result',
         condition: 'Label is derived from assignment.status.',
         result: 'Routes to /iebaseline/module/{module_id}.',
         api: 'No direct call; target page calls GET /home.',
@@ -98,34 +98,22 @@ const pages = [
         api: 'Indirectly calls POST /modules/{module_id}/attempts/start, then GET /attempts/{attempt_id}/questions.',
       },
       {
-        trigger: 'View Submission',
+        trigger: 'View Module / Result',
         condition: 'Shown when assignment.status is Submitted.',
         result: 'Routes to the legacy latest module result route without starting a new attempt.',
         api: 'Target page calls GET /modules/{module_id}/attempts, then GET /attempts/{attempt_id}/questions.',
       },
       {
-        trigger: 'Retake Module',
+        trigger: 'Continue Module',
         condition: 'Shown as the primary action when assignment.status is Rejected.',
-        result: 'Sets activeExam to retake and opens ExamModal.',
+        result: 'Sets activeExam to start and opens ExamModal through the start/resume endpoint.',
         api: 'Indirectly calls POST /modules/{module_id}/attempts/start, then GET /attempts/{attempt_id}/questions.',
       },
       {
-        trigger: 'Review Module',
-        condition: 'Shown when assignment.status is Completed.',
-        result: 'Sets activeExam to review and opens ExamModal in review-only mode.',
-        api: 'Indirectly calls GET /modules/{module_id}/attempts and GET /attempts/{attempt_id}/questions.',
-      },
-      {
-        trigger: 'View Result',
+        trigger: 'View Module / Result',
         condition: 'Shown when assignment.status is Completed.',
         result: 'Routes to the legacy latest module result route.',
         api: 'Target page calls GET /modules/{module_id}/attempts, then GET /attempts/{attempt_id}/questions.',
-      },
-      {
-        trigger: 'Retake Module',
-        condition: 'Shown when assignment.status is Completed.',
-        result: 'Sets activeExam to retake and opens ExamModal.',
-        api: 'Indirectly calls POST /modules/{module_id}/attempts/start, then GET /attempts/{attempt_id}/questions.',
       },
       {
         trigger: 'Back to Dashboard',

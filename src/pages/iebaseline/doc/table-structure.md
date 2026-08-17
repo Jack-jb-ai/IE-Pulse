@@ -1083,6 +1083,9 @@ CREATE TABLE user_exam_attempt (
 * Approval-related result states are stored in `result_status`.
 * Assignment workflow states are stored in `user_checklist_status.status`, not
   on the attempt row.
+* Learner editability is controlled by `user_checklist_status.status =
+  'In Progress'`. `user_exam_attempt.result_status = 'IN_PROGRESS'` means an
+  approver is reviewing and must not allow learner save, clear, or submit.
 * Frontend `attemptStatus` values are derived from attempt timestamps,
   `result_status`, approval state, or the active assignment status.
 * A submitted attempt that needs manual review should have one linked `approval_request`.
@@ -1852,7 +1855,10 @@ Example request:
 Responsibilities:
 
 * Validate attempt ownership.
-* Confirm the attempt is editable.
+* Confirm the attempt is editable by checking
+  `user_checklist_status.status = 'In Progress'`.
+* Do not use `user_exam_attempt.result_status = 'IN_PROGRESS'` as learner
+  editability; that is approver review state.
 * Confirm the question belongs to the attempt module.
 * Update the existing `user_exam_answer` shell.
 * Update attempt progress.

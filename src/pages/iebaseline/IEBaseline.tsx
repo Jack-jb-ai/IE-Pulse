@@ -112,11 +112,11 @@ export default function IEBaseline() {
   const getActionLabel = (status: ModuleStatus, _progress: number) => {
     switch (status) {
       case 'Completed':
-        return 'Review Material';
+        return 'View Module / Result';
       case 'Submitted':
-        return 'View Submission';
+        return 'View Module / Result';
       case 'Rejected':
-        return 'Retake Module';
+        return 'Continue Module';
       case 'In Progress':
         return 'Continue Module';
       case 'Not Started':
@@ -256,12 +256,37 @@ function AssignmentAccordion({
   return (
     <Accordion type="single" collapsible className="w-full">
       {assignments.map((assignment) => (
-        <AccordionItem
-          value={String(assignment.assignment_id)}
+        <AssignmentAccordionItem
           key={assignment.assignment_id}
-          className="border-b border-border/50 last:border-0"
-        >
-          <AccordionTrigger className="hover:no-underline px-4 py-4 hover:bg-muted/20 transition-colors [&[data-state=open]]:bg-muted/10">
+          assignment={assignment}
+          formatDate={formatDate}
+          getActionLabel={getActionLabel}
+          getStatusColorClass={getStatusColorClass}
+        />
+      ))}
+    </Accordion>
+  );
+}
+
+function AssignmentAccordionItem({
+  assignment,
+  formatDate,
+  getActionLabel,
+  getStatusColorClass,
+}: {
+  assignment: IEBaselineHomeAssignment;
+  formatDate: (value: string) => string;
+  getActionLabel: (status: ModuleStatus, progress: number) => string;
+  getStatusColorClass: (status: ModuleStatus) => string;
+}) {
+  const displayProgress = assignment.status === 'Not Started' ? 0 : assignment.progress;
+
+  return (
+    <AccordionItem
+      value={String(assignment.assignment_id)}
+      className="border-b border-border/50 last:border-0"
+    >
+      <AccordionTrigger className="hover:no-underline px-4 py-4 hover:bg-muted/20 transition-colors [&[data-state=open]]:bg-muted/10">
             <div className="grid grid-cols-12 gap-4 w-full items-center text-left text-sm">
               <div className="col-span-5 font-medium text-foreground">
                 <Link
@@ -275,11 +300,11 @@ function AssignmentAccordion({
 
               <div className="col-span-4 flex items-center gap-3 pr-8">
                 <Progress
-                  value={assignment.progress}
-                  className={`h-2 flex-1 bg-muted ${assignment.progress === 100 ? '[&>div]:bg-emerald-500' : ''}`}
+                  value={displayProgress}
+                  className={`h-2 flex-1 bg-muted ${displayProgress === 100 ? '[&>div]:bg-emerald-500' : ''}`}
                 />
                 <span className="text-xs font-medium text-muted-foreground min-w-[3rem] text-right">
-                  {assignment.progress}%
+                  {displayProgress}%
                 </span>
               </div>
 
@@ -347,7 +372,5 @@ function AssignmentAccordion({
             </div>
           </AccordionContent>
         </AccordionItem>
-      ))}
-    </Accordion>
   );
 }

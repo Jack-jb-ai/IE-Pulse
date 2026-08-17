@@ -785,16 +785,15 @@ function getLatestReviewAttempt(attempts: IEBaselineAttempt[]) {
 function isAttemptEditable(attempt: IEBaselineAttempt | undefined) {
   if (!attempt) return true;
   if (attempt.submittedAt || attempt.completedAt) return false;
-  if (isReviewableAttempt(attempt)) return false;
 
-  return attempt.attemptStatus === 'In Progress' || attempt.attemptStatus === 'Not Started';
+  return attempt.attemptStatus !== 'Submitted' && attempt.attemptStatus !== 'Completed';
 }
 
 function isReviewableAttempt(attempt: IEBaselineAttempt) {
   if (attempt.submittedAt || attempt.completedAt) return true;
   if (attempt.attemptStatus === 'Submitted' || attempt.attemptStatus === 'Completed' || attempt.attemptStatus === 'Rejected') return true;
 
-  return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'REJECTED', 'CANCELLED', 'Passed', 'Failed'].includes(attempt.resultStatus);
+  return ['APPROVED', 'REJECTED', 'CANCELLED', 'Passed', 'Failed'].includes(attempt.resultStatus);
 }
 
 function getAttemptSortTime(attempt: IEBaselineAttempt) {
@@ -866,7 +865,7 @@ function ScoreSummary({ attempt }: { attempt: IEBaselineAttempt }) {
 function getAttemptDisplayStatus(attempt: IEBaselineAttempt) {
   if (attempt.resultStatus === 'REJECTED') return 'Rejected';
   if (attempt.resultStatus === 'APPROVED') return 'Approved';
-  if (attempt.resultStatus === 'PENDING' || attempt.resultStatus === 'IN_PROGRESS') return 'Submitted';
+  if ((attempt.resultStatus === 'PENDING' || attempt.resultStatus === 'IN_PROGRESS') && attempt.submittedAt) return 'Submitted';
   return attempt.attemptStatus;
 }
 

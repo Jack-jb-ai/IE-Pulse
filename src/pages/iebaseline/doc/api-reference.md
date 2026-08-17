@@ -1626,6 +1626,11 @@ whitespace-only values are treated as not answered.
 * Validate that `current_user_id` has access to `/iebaseline/module/:moduleId`.
 * Validate that `current_user_id` owns the attempt.
 * Validate that the attempt exists and is still editable.
+* Learner editability is determined from `user_checklist_status.status`, not
+  from `user_exam_attempt.result_status`.
+* Only assignments with status `In Progress` may be saved by the learner.
+  `result_status = IN_PROGRESS` means an approver is actively reviewing and
+  must not unlock learner editing.
 * Validate that the question belongs to the attempt's module.
 * Locate the existing `user_exam_answer` shell by `(attempt_id, question_id)`.
 * If the shell does not exist, return a clear error such as
@@ -1692,6 +1697,11 @@ Status: `200 OK`
 ## DELETE /api/iebaseline/attempts/{attempt_id}/questions/{question_id}/answer
 
 Clears one saved answer for an in-progress attempt.
+
+Learner editability follows the same rule as save: the active assignment must
+have `user_checklist_status.status = 'In Progress'`. Do not treat
+`user_exam_attempt.result_status = 'IN_PROGRESS'` as learner-editable; that
+state belongs to approver review.
 
 ### Request
 
@@ -1770,7 +1780,9 @@ POST /api/iebaseline/attempts/15/submit?current_user_id=1
 
 * Validate that `current_user_id` has access to `/iebaseline/module/:moduleId`.
 * Validate that `current_user_id` owns the attempt.
-* Reject attempts that are no longer `In Progress`.
+* Reject attempts whose active assignment status is no longer `In Progress`.
+  `user_exam_attempt.result_status = IN_PROGRESS` is reviewer review state and
+  must not make a submitted attempt learner-editable.
 * Reject unanswered shells before required attachment validation.
 
 ### Success Response
@@ -1879,7 +1891,9 @@ the scored answer fields for review:
 
 The backend should:
 
-* Validate attempt ownership/editability.
+* Validate attempt ownership/editability. Learner editability comes from
+  `user_checklist_status.status = 'In Progress'`, not from
+  `user_exam_attempt.result_status`.
 * Validate that all answer shells for the attempt have `is_answered = true`.
   Reject before scoring when any shell is still false.
 * Validate required attachments after unanswered-shell validation. Questions

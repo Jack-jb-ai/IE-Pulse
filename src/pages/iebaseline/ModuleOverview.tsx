@@ -118,12 +118,8 @@ export default function ModuleOverview() {
   const isCompleted = assignment.status === 'Completed';
   const isSubmitted = assignment.status === 'Submitted';
   const isRejected = assignment.status === 'Rejected';
-  const canStartOrContinue = assignment.status === 'Not Started' || assignment.status === 'In Progress' || isRejected;
-  const primaryActionLabel = assignment.status === 'In Progress'
-    ? 'Continue Module'
-    : isRejected
-      ? 'Retake Module'
-      : 'Start Module';
+  const canStartOrContinue = assignment.status === 'Not Started' || assignment.status === 'In Progress' || assignment.status === 'Rejected';
+  const primaryActionLabel = assignment.status === 'Not Started' ? 'Start Module' : 'Continue Module';
   const assigneeName = assignment.assigned_by?.name ?? 'N/A';
   const ownerName = assignment.owner_name ?? 'N/A';
 
@@ -199,7 +195,7 @@ export default function ModuleOverview() {
                       variant="ghost"
                       size="icon"
                       className="rounded-full opacity-0 group-hover:opacity-100 transition-opacity text-primary hover:bg-primary/10 hover:text-primary"
-                      onClick={() => setActiveExam(isRejected ? 'retake' : 'start')}
+                      onClick={() => setActiveExam('start')}
                     >
                       <PlayCircle className="w-6 h-6" />
                     </Button>
@@ -270,14 +266,6 @@ export default function ModuleOverview() {
                 {isCompleted ? (
                   <div className="grid gap-3">
                     <Button
-                      className="w-full h-12 text-md font-semibold gap-2 shadow-sm"
-                      size="lg"
-                      onClick={() => setActiveExam('review')}
-                    >
-                      Review Module
-                      <PlayCircle className="w-5 h-5" />
-                    </Button>
-                    <Button
                       variant="outline"
                       className="w-full h-12 text-md font-semibold gap-2"
                       size="lg"
@@ -287,15 +275,6 @@ export default function ModuleOverview() {
                         View Result
                         <Eye className="w-5 h-5" />
                       </Link>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full h-12 text-md font-semibold gap-2"
-                      size="lg"
-                      onClick={() => setActiveExam('retake')}
-                    >
-                      Retake Module
-                      <RotateCcw className="w-5 h-5" />
                     </Button>
                   </div>
                 ) : isSubmitted ? (
@@ -307,27 +286,16 @@ export default function ModuleOverview() {
                       asChild
                     >
                       <Link to={`/iebaseline/module/${assignment.module_id}/results`}>
-                        View Submission
+                        View Module / Result
                         <Eye className="w-5 h-5" />
                       </Link>
                     </Button>
                   </div>
                 ) : isRejected ? (
                   <div className="grid gap-3">
-                    <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('retake')}>
-                      Retake Module
-                      <RotateCcw className="w-5 h-5" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="w-full h-12 text-md font-semibold gap-2"
-                      size="lg"
-                      asChild
-                    >
-                      <Link to={`/iebaseline/module/${assignment.module_id}/results`}>
-                        View Result
-                        <Eye className="w-5 h-5" />
-                      </Link>
+                    <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('start')}>
+                      Continue Module
+                      <PlayCircle className="w-5 h-5" />
                     </Button>
                   </div>
                 ) : (
@@ -432,7 +400,7 @@ function getStatusDescription(status: IEBaselineHomeStatus) {
     case 'Submitted':
       return 'Your checklist has been submitted and is waiting for approval.';
     case 'Rejected':
-      return 'Your previous submission was rejected. Start a retake when ready.';
+      return 'Your previous submission was rejected. Continue the module when ready.';
     default:
       return 'This checklist is available to start or continue.';
   }
