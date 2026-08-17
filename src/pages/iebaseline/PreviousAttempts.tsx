@@ -119,10 +119,10 @@ export default function PreviousAttempts() {
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filter attempts by status">
-                <SelectValue placeholder="All statuses" />
+                <SelectValue placeholder="All Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_STATUSES}>All statuses</SelectItem>
+                <SelectItem value={ALL_STATUSES}>All Status</SelectItem>
                 {statusOptions.map((status) => (
                   <SelectItem key={status} value={status}>{status}</SelectItem>
                 ))}
