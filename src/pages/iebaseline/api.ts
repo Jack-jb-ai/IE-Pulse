@@ -1,7 +1,7 @@
 const BASE = '/ietools/iebaseline/api';
 
-export type IEBaselineHomeStatus = 'Not Started' | 'In Progress' | 'Completed';
-export type IEBaselineRawChecklistStatus = 'Incomplete' | 'Completed';
+export type IEBaselineHomeStatus = 'Not Started' | 'In Progress' | 'Submitted' | 'Rejected' | 'Completed';
+export type IEBaselineRawChecklistStatus = IEBaselineHomeStatus;
 
 export interface IEBaselineHomeUser {
   user_id: number;
@@ -169,7 +169,7 @@ export interface IEBaselineUpdateUserModulesResponse {
   unchanged_module_ids: number[];
 }
 
-export type IEBaselineExamAttemptStatus = 'Not Started' | 'In Progress' | 'Submitted' | 'Completed' | 'Abandoned';
+export type IEBaselineExamAttemptStatus = 'Not Started' | 'In Progress' | 'Submitted' | 'Rejected' | 'Completed' | 'Abandoned';
 export type IEBaselineApprovalStatus = 'PENDING' | 'IN_PROGRESS' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 export type IEBaselineExamResultStatus = 'Pending' | 'Passed' | 'Failed' | IEBaselineApprovalStatus;
 export type IEBaselineApprovalDecision = 'APPROVED' | 'REJECTED';

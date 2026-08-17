@@ -82,7 +82,7 @@ export default function PreviousAttempts() {
           <div className="col-span-2">Attempt</div>
           <div className="col-span-2">Status</div>
           <div className="col-span-2">Score</div>
-          <div className="col-span-1">Completed</div>
+          <div className="col-span-1">Result Date</div>
           <div className="col-span-1 text-right">Action</div>
         </div>
 
@@ -103,7 +103,7 @@ export default function PreviousAttempts() {
               </Badge>
             </div>
             <div className="col-span-2 font-medium text-foreground">{formatScore(attempt.score)}</div>
-            <div className="col-span-1 text-xs text-muted-foreground">{formatDate(getCompletedDate(attempt))}</div>
+            <div className="col-span-1 text-xs text-muted-foreground">{formatDate(getResultDate(attempt))}</div>
             <div className="col-span-1 text-right">
               <Button asChild size="sm" variant="ghost" className="gap-2">
                 <Link to={`/iebaseline/attempts/${attempt.attemptId}/results`}>
@@ -120,14 +120,14 @@ export default function PreviousAttempts() {
 }
 
 function getAttemptSortTime(attempt: IEBaselineAttemptHistoryItem) {
-  const value = getCompletedDate(attempt) ?? attempt.startedAt;
+  const value = getResultDate(attempt) ?? attempt.startedAt;
   if (!value) return 0;
 
   const time = new Date(value).getTime();
   return Number.isNaN(time) ? 0 : time;
 }
 
-function getCompletedDate(attempt: IEBaselineAttemptHistoryItem) {
+function getResultDate(attempt: IEBaselineAttemptHistoryItem) {
   return attempt.completedAt ?? attempt.submittedAt ?? attempt.lastSavedAt;
 }
 

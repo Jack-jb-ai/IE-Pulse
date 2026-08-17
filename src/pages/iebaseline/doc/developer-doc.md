@@ -100,7 +100,7 @@ Actions and triggers:
 | Trigger | Condition | Result | API impact |
 | --- | --- | --- | --- |
 | Module name link | Every assigned module row | Routes to `/iebaseline/module/{module_id}` | No direct call; target page calls `GET /home` |
-| Start Module / Continue Module / Review Material | Label is derived from assignment status and progress | Routes to `/iebaseline/module/{module_id}` | No direct call; target page calls `GET /home` |
+| Start Module / Continue Module / View Submission / Retake Module / Review Material | Label is derived from assignment status | Routes to `/iebaseline/module/{module_id}` | No direct call; target page calls `GET /home` |
 | Accordion row expand | Every assignment row | Expands local module details | No API call |
 
 ### Module Overview
@@ -114,7 +114,9 @@ Features:
 * Loads home assignments and finds the matching module assignment.
 * Shows module metadata, progress, status, question count, owner, assignee, and
   dates.
-* Starts an exam modal for incomplete modules.
+* Starts or continues available checklist assignments.
+* Shows submitted assignments as waiting for approval without opening a new editable attempt.
+* Lets rejected modules open a retake or view prior results.
 * Lets completed modules open review mode, retake, or view final results.
 
 API calls:
@@ -127,7 +129,9 @@ Actions and triggers:
 
 | Trigger | Condition | Result | API impact |
 | --- | --- | --- | --- |
-| Start Module | Assignment is not `Completed` | Sets `activeExam = "start"` and opens `ExamModal` | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |
+| Start Module / Continue Module | Assignment is `Not Started` or `In Progress` | Sets `activeExam = "start"` and opens `ExamModal` | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |
+| View Submission | Assignment is `Submitted` | Routes to the legacy latest module result route without starting a new attempt | Target page calls `GET /modules/{module_id}/attempts`, then `GET /attempts/{attempt_id}/questions` |
+| Retake Module | Assignment is `Rejected` | Sets `activeExam = "retake"` and opens `ExamModal` | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |
 | Review Module | Assignment is `Completed` | Sets `activeExam = "review"` and opens `ExamModal` in review-only mode | Indirectly calls `GET /modules/{module_id}/attempts` and `GET /attempts/{attempt_id}/questions` |
 | View Result | Assignment is `Completed` | Routes to the legacy latest module result route | Target page calls `GET /modules/{module_id}/attempts`, then `GET /attempts/{attempt_id}/questions` |
 | Retake Module | Assignment is `Completed` | Sets `activeExam = "retake"` and opens `ExamModal` | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |

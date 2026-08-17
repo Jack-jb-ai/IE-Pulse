@@ -276,7 +276,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   const progressPct = totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0;
   const canEditAnswers = isApprovalReview
     ? !isTerminalApproval
-    : !reviewOnly && (attempt ? attempt.attemptStatus === 'In Progress' : true);
+    : !reviewOnly && isAttemptEditable(attempt);
   const isReviewMode = !canEditAnswers;
   const isLoading = isApprovalReview ? isLoadingApprovalReview : (reviewOnly ? isLoadingHistory : isStarting) || isLoadingQuestions;
   const isError = isApprovalReview ? isApprovalReviewError : (reviewOnly ? isHistoryError : isStartError) || isQuestionsError;
@@ -778,8 +778,23 @@ function parseOptions(value?: string | null) {
 
 function getLatestReviewAttempt(attempts: IEBaselineAttempt[]) {
   return attempts
-    .filter((attempt) => attempt.attemptStatus === 'Completed' || attempt.attemptStatus === 'Submitted')
+    .filter(isReviewableAttempt)
     .sort((left, right) => getAttemptSortTime(right) - getAttemptSortTime(left))[0];
+}
+
+function isAttemptEditable(attempt: IEBaselineAttempt | undefined) {
+  if (!attempt) return true;
+  if (attempt.submittedAt || attempt.completedAt) return false;
+  if (isReviewableAttempt(attempt)) return false;
+
+  return attempt.attemptStatus === 'In Progress' || attempt.attemptStatus === 'Not Started';
+}
+
+function isReviewableAttempt(attempt: IEBaselineAttempt) {
+  if (attempt.submittedAt || attempt.completedAt) return true;
+  if (attempt.attemptStatus === 'Submitted' || attempt.attemptStatus === 'Completed' || attempt.attemptStatus === 'Rejected') return true;
+
+  return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'REJECTED', 'CANCELLED', 'Passed', 'Failed'].includes(attempt.resultStatus);
 }
 
 function getAttemptSortTime(attempt: IEBaselineAttempt) {
@@ -823,6 +838,7 @@ function getApprovalStatusClass(status: string) {
 
 function ScoreSummary({ attempt }: { attempt: IEBaselineAttempt }) {
   const scoreText = formatScore(attempt.score);
+  const statusText = getAttemptDisplayStatus(attempt);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -841,10 +857,17 @@ function ScoreSummary({ attempt }: { attempt: IEBaselineAttempt }) {
       </div>
       <div>
         <span className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</span>
-        <span className="text-sm font-semibold text-foreground">{attempt.attemptStatus}</span>
+        <span className="text-sm font-semibold text-foreground">{statusText}</span>
       </div>
     </div>
   );
+}
+
+function getAttemptDisplayStatus(attempt: IEBaselineAttempt) {
+  if (attempt.resultStatus === 'REJECTED') return 'Rejected';
+  if (attempt.resultStatus === 'APPROVED') return 'Approved';
+  if (attempt.resultStatus === 'PENDING' || attempt.resultStatus === 'IN_PROGRESS') return 'Submitted';
+  return attempt.attemptStatus;
 }
 
 function AnswerScore({ answer }: { answer: IEBaselineAttemptAnswer }) {

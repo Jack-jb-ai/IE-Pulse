@@ -50,7 +50,7 @@ Current update:
 - The frontend resolves `{user_id}` through current-user lookup, or through an
   explicit staging override when configured.
 - Assignment progress now supports latest-attempt percentages from `0` to `100`, not only `0` or `100`.
-- Assignment status now supports the derived API labels `Not Started`, `In Progress`, and `Completed`.
+- Assignment status now supports the stored workflow labels `Not Started`, `In Progress`, `Submitted`, `Rejected`, and `Completed`.
 - Email and department remain placeholders because the current API response does not include them.
 - `MODULES` remains exported from `IEBaseline.tsx` only for dependent legacy pages such as module overview, admin, and edit views.
 
@@ -88,7 +88,7 @@ Keep this structure as the base template unless a future requirement explicitly 
 `IEBaseline.tsx` exports these types:
 
 ```tsx
-export type ModuleStatus = 'Not Started' | 'In Progress' | 'Completed';
+export type ModuleStatus = 'Not Started' | 'In Progress' | 'Submitted' | 'Rejected' | 'Completed';
 
 export interface Lesson {
   id: string;
@@ -141,6 +141,8 @@ const getStatusColorClass = (status: ModuleStatus) => {
   switch (status) {
     case 'Completed': return 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20';
     case 'In Progress': return 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border-blue-500/20';
+    case 'Submitted': return 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-500/25';
+    case 'Rejected': return 'bg-red-500/10 text-red-600 hover:bg-red-500/20 border-red-500/25';
     case 'Not Started': return 'bg-muted text-muted-foreground hover:bg-muted/80';
   }
 };
@@ -213,7 +215,7 @@ interface AssignedModuleSummary {
   moduleId: string | number;
   moduleName: string;
   description: string;
-  status: 'Not Started' | 'In Progress' | 'Completed';
+  status: 'Not Started' | 'In Progress' | 'Submitted' | 'Rejected' | 'Completed';
   progress: number;
   score?: number;
   passingScore?: number;
@@ -304,8 +306,8 @@ interface IEBaselineHomeResponse {
       user_id: number;
       name: string;
     } | null;
-    status: 'Not Started' | 'In Progress' | 'Completed';
-    raw_status: 'Incomplete' | 'Completed';
+    status: 'Not Started' | 'In Progress' | 'Submitted' | 'Rejected' | 'Completed';
+    raw_status: 'Not Started' | 'In Progress' | 'Submitted' | 'Rejected' | 'Completed';
     progress: number;
     assigned_at: string;
     updated_at: string;
@@ -317,9 +319,11 @@ interface IEBaselineHomeResponse {
 Current status/progress behavior:
 
 ```text
-No attempt exists                                      -> Not Started -> 0%
-Latest attempt answered questions < total questions    -> In Progress -> 0..99%
-Latest attempt answered questions = total questions    -> Completed   -> 100%
+Assigned but no attempt started                         -> Not Started -> 0%
+Editable attempt exists                                 -> In Progress -> latest attempt progress
+Approval-required attempt submitted                     -> Submitted   -> latest attempt progress
+Latest approval decision rejected                       -> Rejected    -> latest attempt progress
+Checklist completed or approval finalized               -> Completed   -> latest attempt progress
 ```
 
 The backend should derive progress from the most recent `user_exam_attempt` for
@@ -332,9 +336,10 @@ progress = round(answered user_exam_answer rows / total module questions * 100)
 Count only latest-attempt `user_exam_answer` rows with `is_answered = true`.
 Saved `NA` / `N/A` answers still count as answered when `is_answered = true`.
 
-Keep `user_checklist_status.status` unchanged as the raw database enum:
-`Incomplete` or `Completed`. `In Progress` is a derived API/frontend label and
-must not be stored in `user_checklist_status.status`.
+For v0.1, `user_checklist_status.status` stores the workflow enum:
+`Not Started`, `In Progress`, `Submitted`, `Rejected`, and `Completed`.
+The home API returns `status` from that stored value and keeps `raw_status`
+mirrored to the same value for compatibility.
 
 ## Coding-Agent Instructions For Future Edits
 

@@ -19,7 +19,7 @@ import {
   Trophy,
   UserCircle,
 } from 'lucide-react';
-import { ieBaselineApi } from './api';
+import { ieBaselineApi, type IEBaselineHomeStatus } from './api';
 import ExamModal from './components/ExamModal';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
@@ -62,10 +62,12 @@ export default function ModuleOverview() {
     }).format(date);
   };
 
-  const getStatusColorClass = (status: string) => {
+  const getStatusColorClass = (status: IEBaselineHomeStatus) => {
     switch (status) {
       case 'Completed': return 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20';
       case 'In Progress': return 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border-blue-500/20';
+      case 'Submitted': return 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-500/25';
+      case 'Rejected': return 'bg-red-500/10 text-red-600 hover:bg-red-500/20 border-red-500/25';
       default: return 'bg-muted text-muted-foreground hover:bg-muted/80';
     }
   };
@@ -114,6 +116,14 @@ export default function ModuleOverview() {
   }
 
   const isCompleted = assignment.status === 'Completed';
+  const isSubmitted = assignment.status === 'Submitted';
+  const isRejected = assignment.status === 'Rejected';
+  const canStartOrContinue = assignment.status === 'Not Started' || assignment.status === 'In Progress' || isRejected;
+  const primaryActionLabel = assignment.status === 'In Progress'
+    ? 'Continue Module'
+    : isRejected
+      ? 'Retake Module'
+      : 'Start Module';
   const assigneeName = assignment.assigned_by?.name ?? 'N/A';
   const ownerName = assignment.owner_name ?? 'N/A';
 
@@ -130,18 +140,18 @@ export default function ModuleOverview() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
-          {isCompleted && (
-            <Card className="bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-background border-emerald-500/30 overflow-hidden relative">
-              <div className="absolute -right-6 -top-6 text-emerald-500/10 pointer-events-none">
-                <Trophy className="w-32 h-32" />
+          {(isCompleted || isSubmitted || isRejected) && (
+            <Card className={`${getStatusPanelClass(assignment.status)} overflow-hidden relative`}>
+              <div className="absolute -right-6 -top-6 opacity-10 pointer-events-none">
+                {isRejected ? <RotateCcw className="w-32 h-32" /> : <Trophy className="w-32 h-32" />}
               </div>
               <div className="p-6 flex items-center gap-6 relative z-10">
-                <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 border border-emerald-500/30">
-                  <Trophy className="w-8 h-8 text-emerald-500" />
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center shrink-0 border ${getStatusIconClass(assignment.status)}`}>
+                  {isRejected ? <RotateCcw className="w-8 h-8" /> : isSubmitted ? <Clock className="w-8 h-8" /> : <Trophy className="w-8 h-8" />}
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-xl font-bold text-foreground">Module Completed</h3>
-                  <p className="text-sm text-muted-foreground">This assigned checklist is marked as completed.</p>
+                  <h3 className="text-xl font-bold text-foreground">{getStatusTitle(assignment.status)}</h3>
+                  <p className="text-sm text-muted-foreground">{getStatusDescription(assignment.status)}</p>
                 </div>
               </div>
             </Card>
@@ -184,12 +194,12 @@ export default function ModuleOverview() {
                       </span>
                     </div>
                   </div>
-                  {!isCompleted && (
+                  {canStartOrContinue && (
                     <Button
                       variant="ghost"
                       size="icon"
                       className="rounded-full opacity-0 group-hover:opacity-100 transition-opacity text-primary hover:bg-primary/10 hover:text-primary"
-                      onClick={() => setActiveExam('start')}
+                      onClick={() => setActiveExam(isRejected ? 'retake' : 'start')}
                     >
                       <PlayCircle className="w-6 h-6" />
                     </Button>
@@ -288,9 +298,41 @@ export default function ModuleOverview() {
                       <RotateCcw className="w-5 h-5" />
                     </Button>
                   </div>
+                ) : isSubmitted ? (
+                  <div className="grid gap-3">
+                    <Button
+                      variant="outline"
+                      className="w-full h-12 text-md font-semibold gap-2"
+                      size="lg"
+                      asChild
+                    >
+                      <Link to={`/iebaseline/module/${assignment.module_id}/results`}>
+                        View Submission
+                        <Eye className="w-5 h-5" />
+                      </Link>
+                    </Button>
+                  </div>
+                ) : isRejected ? (
+                  <div className="grid gap-3">
+                    <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('retake')}>
+                      Retake Module
+                      <RotateCcw className="w-5 h-5" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full h-12 text-md font-semibold gap-2"
+                      size="lg"
+                      asChild
+                    >
+                      <Link to={`/iebaseline/module/${assignment.module_id}/results`}>
+                        View Result
+                        <Eye className="w-5 h-5" />
+                      </Link>
+                    </Button>
+                  </div>
                 ) : (
                   <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('start')}>
-                    Start Module
+                    {primaryActionLabel}
                     <PlayCircle className="w-5 h-5" />
                   </Button>
                 )}
@@ -342,4 +384,56 @@ export default function ModuleOverview() {
       )}
     </div>
   );
+}
+
+function getStatusPanelClass(status: IEBaselineHomeStatus) {
+  switch (status) {
+    case 'Completed':
+      return 'bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-background border-emerald-500/30';
+    case 'Submitted':
+      return 'bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-background border-amber-500/30';
+    case 'Rejected':
+      return 'bg-gradient-to-r from-red-500/10 via-red-500/5 to-background border-red-500/30';
+    default:
+      return 'bg-background/60 border-border/50';
+  }
+}
+
+function getStatusIconClass(status: IEBaselineHomeStatus) {
+  switch (status) {
+    case 'Completed':
+      return 'bg-emerald-500/20 border-emerald-500/30 text-emerald-500';
+    case 'Submitted':
+      return 'bg-amber-500/20 border-amber-500/30 text-amber-600';
+    case 'Rejected':
+      return 'bg-red-500/20 border-red-500/30 text-red-600';
+    default:
+      return 'bg-muted border-border text-muted-foreground';
+  }
+}
+
+function getStatusTitle(status: IEBaselineHomeStatus) {
+  switch (status) {
+    case 'Completed':
+      return 'Module Completed';
+    case 'Submitted':
+      return 'Submission Pending Review';
+    case 'Rejected':
+      return 'Submission Rejected';
+    default:
+      return 'Module Assigned';
+  }
+}
+
+function getStatusDescription(status: IEBaselineHomeStatus) {
+  switch (status) {
+    case 'Completed':
+      return 'This assigned checklist is marked as completed.';
+    case 'Submitted':
+      return 'Your checklist has been submitted and is waiting for approval.';
+    case 'Rejected':
+      return 'Your previous submission was rejected. Start a retake when ready.';
+    default:
+      return 'This checklist is available to start or continue.';
+  }
 }

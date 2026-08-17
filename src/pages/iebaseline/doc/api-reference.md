@@ -151,7 +151,7 @@ empty `assignments` array.
         "name": "Alex Lee"
       },
       "status": "In Progress",
-      "raw_status": "Incomplete",
+      "raw_status": "In Progress",
       "progress": 45,
       "assigned_at": "2026-07-22T01:00:00+00:00",
       "updated_at": "2026-07-22T01:00:00+00:00",
@@ -163,8 +163,10 @@ empty `assignments` array.
 
 ### Progress and Status Tracking
 
-The home page progress and status must be derived from the most recent exam
-attempt for the assignment's `user_id` and `module_id`.
+The home page status must be returned directly from
+`user_checklist_status.status`. Progress uses the most recent exam attempt for
+the assignment's `user_id` and `module_id` when the stored assignment status is
+not `Not Started`.
 
 `assignments[].progress` is a numeric percentage from `0` to `100`.
 
@@ -176,6 +178,9 @@ progress = round(answered_questions / total_questions * 100)
 
 Rules:
 
+* If stored status is `Not Started`, return `progress = 0`.
+* If stored status is `In Progress`, `Submitted`, `Rejected`, or `Completed`,
+  calculate progress from the latest attempt.
 * `answered_questions` must count rows in `user_exam_answer` for the latest
   attempt where `is_answered = true`.
 * `total_questions` must count checklist questions in `baseline_checklist` for
@@ -201,34 +206,32 @@ was completed.
 
 ### Status Mapping
 
-`assignments[].status` is a derived API/frontend display label.
-`assignments[].raw_status` remains the stored `user_checklist_status.status`
-value.
+`assignments[].status` is the stored `user_checklist_status.status` value.
+`assignments[].raw_status` remains temporarily for compatibility and mirrors
+`assignments[].status`.
 
-Do not change the `checklist_status` database enum for this feature. It remains:
+The `checklist_status` enum is:
 
 ```sql
 CREATE TYPE checklist_status AS ENUM (
-    'Completed',
-    'Incomplete'
+    'Not Started',
+    'In Progress',
+    'Submitted',
+    'Rejected',
+    'Completed'
 );
 ```
 
-`In Progress` is derived from latest-attempt progress; it is not stored in
-`user_checklist_status.status`.
-
-| Latest attempt state | Typical database `raw_status` | API `status` | `progress` |
+| Stored `user_checklist_status.status` | API `status` | `raw_status` | `progress` |
 | --- | --- | --- | --- |
-| No attempt exists | `Incomplete` | `Not Started` | `0` |
-| Latest attempt exists and has fewer answered questions than total questions | `Incomplete` | `In Progress` | `0..99` |
-| Latest attempt has answered questions equal to total questions | `Completed` after submit; may still be `Incomplete` before submit | `Completed` | `100` |
-
-The backend may keep `raw_status` synchronized with completion by storing
-`Completed` only when the module is complete and `Incomplete` otherwise. It
-must never store `In Progress` in `user_checklist_status.status`.
+| `Not Started` | `Not Started` | `Not Started` | `0` |
+| `In Progress` | `In Progress` | `In Progress` | Latest-attempt percentage |
+| `Submitted` | `Submitted` | `Submitted` | Latest-attempt percentage |
+| `Rejected` | `Rejected` | `Rejected` | Latest-attempt percentage |
+| `Completed` | `Completed` | `Completed` | Latest-attempt percentage |
 
 Frontend clients should use `assignments[].status` and `assignments[].progress`
-for display. `raw_status` is exposed only as the stored assignment value.
+for display.
 
 ### Response Fields
 
@@ -244,8 +247,8 @@ for display. `raw_status` is exposed only as the stored assignment value.
 | `assignments[].description` | Module description, or `null` |
 | `assignments[].owner_name` | Module owner, or `null` |
 | `assignments[].assigned_by` | Assignee user details, or `null` |
-| `assignments[].status` | Derived frontend status label: `Not Started`, `In Progress`, or `Completed` |
-| `assignments[].raw_status` | Stored checklist status from the database: `Incomplete` or `Completed` |
+| `assignments[].status` | Stored assignment workflow status: `Not Started`, `In Progress`, `Submitted`, `Rejected`, or `Completed` |
+| `assignments[].raw_status` | Compatibility field mirroring `assignments[].status` |
 | `assignments[].progress` | Latest-attempt completion percentage from `0` to `100` |
 | `assignments[].assigned_at` | Assignment creation timestamp |
 | `assignments[].updated_at` | Assignment last update timestamp |
@@ -1221,7 +1224,7 @@ Status: `200 OK`
 * Validate that `assignee_id` exists in `user_master`.
 * Validate that every `module_id` exists in `module_master`.
 * Deduplicate `module_ids` and sort response arrays ascending.
-* Insert missing `user_checklist_status` rows with default `Incomplete`.
+* Insert missing `user_checklist_status` rows with default `Not Started`.
 * Delete `user_checklist_status` rows for modules no longer included.
 * Preserve existing rows for unchanged assignments, including their current status.
 * Set `created_at` and `updated_at` when rows are inserted.
@@ -1417,6 +1420,8 @@ POST /api/iebaseline/modules/3/attempts/start?user_id=1
   This preserves checkpoint resume for an unfinished checklist.
 * If no `In Progress` attempt exists, create a new attempt with the next
   `attemptNo`, `attemptStatus: "In Progress"`, and `lastSavedAt: null`.
+* Set `user_checklist_status.status` to `In Progress` in the same transaction
+  as start/resume.
 * After selecting or creating the editable attempt, insert missing
   `user_exam_answer` shells for every `baseline_checklist` row in the module.
   This must be idempotent, for example using
@@ -1434,8 +1439,9 @@ POST /api/iebaseline/modules/3/attempts/start?user_id=1
   is still waiting for approval with result status `PENDING` or `IN_PROGRESS`.
 * After an attempt is `REJECTED`, keep the assignment active and allow a fresh
   `In Progress` retry.
-* After an attempt is `APPROVED`, the assignment is deleted and this endpoint
-  must reject new starts until the user is assigned again.
+* After an attempt is `APPROVED`, the assignment remains active with status
+  `Completed`; starts are only allowed again if a later workflow explicitly
+  reassigns or reopens it.
 
 ### Success Response
 
@@ -1898,11 +1904,12 @@ The backend should:
 * Store `score`, `correct_answers`, `submitted_at`, and `completed_at` on
   `user_exam_attempt` for non-approval modules and approval final decisions.
 * Store `correct_answers` as `0` when scoring is numeric-only.
-* For approval-required modules, delete the active `user_checklist_status` row
-  after an `APPROVED` decision by matching the approved attempt's `user_id` and
-  `module_id`. Keep the assignment active after `REJECTED` so the learner can
-  retry.
-* Deleting the active assignment must not delete `user_exam_attempt`,
+* For non-approval modules, set `user_checklist_status.status` to `Completed`
+  on submit.
+* For approval-required modules, set `user_checklist_status.status` to
+  `Submitted` on submit, then to `Completed` or `Rejected` on reviewer decision.
+  Keep the assignment active after `REJECTED` so the learner can retry.
+* Assignment status updates must not delete `user_exam_attempt`,
   `user_exam_answer`, approval request, or attachment history.
 * For approval-required modules, set `resultStatus` to `PENDING` on submit and
   to `APPROVED` or `REJECTED` on decision.

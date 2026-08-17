@@ -47,7 +47,7 @@ const pages = [
     features: [
       'Resolves the active learner through useIEBaselineCurrentUser before learner-specific API calls.',
       'Loads the resolved learner profile and assigned module list.',
-      'Displays progress, derived status, owner, assigned by, assigned date, updated date, and question count.',
+      'Displays progress, stored assignment status, owner, assigned by, assigned date, updated date, and question count.',
       'Expands a module row to show details and actions.',
       'Links each assignment to the module overview route.',
       'Links to Previous Attempts for completed, rejected, and pending attempt history.',
@@ -61,8 +61,8 @@ const pages = [
         api: 'No direct call; target page calls GET /home.',
       },
       {
-        trigger: 'Start Module / Continue Module / Review Material',
-        condition: 'Label is derived from assignment.status and assignment.progress.',
+        trigger: 'Start Module / Continue Module / View Submission / Retake Module / Review Material',
+        condition: 'Label is derived from assignment.status.',
         result: 'Routes to /iebaseline/module/{module_id}.',
         api: 'No direct call; target page calls GET /home.',
       },
@@ -84,15 +84,29 @@ const pages = [
       'Resolves the active learner through useIEBaselineCurrentUser.',
       'Reads moduleId from the URL and finds the matching assignment.',
       'Shows module name, description, progress, status, metadata, assignee, and owner.',
-      'Starts the checklist for incomplete modules.',
+      'Starts or continues available checklist assignments.',
+      'Shows submitted assignments as waiting for approval without opening a new editable attempt.',
+      'For rejected modules, exposes retake and prior result actions.',
       'For completed modules, exposes review, retake, and result actions.',
     ],
     apis: ['POST /users/resolve-current', 'GET /home?user_id=...'],
     actions: [
       {
         trigger: 'Start Module',
-        condition: 'Shown when assignment.status is not Completed.',
+        condition: 'Shown when assignment.status is Not Started or In Progress.',
         result: 'Sets activeExam to start and opens ExamModal.',
+        api: 'Indirectly calls POST /modules/{module_id}/attempts/start, then GET /attempts/{attempt_id}/questions.',
+      },
+      {
+        trigger: 'View Submission',
+        condition: 'Shown when assignment.status is Submitted.',
+        result: 'Routes to the legacy latest module result route without starting a new attempt.',
+        api: 'Target page calls GET /modules/{module_id}/attempts, then GET /attempts/{attempt_id}/questions.',
+      },
+      {
+        trigger: 'Retake Module',
+        condition: 'Shown as the primary action when assignment.status is Rejected.',
+        result: 'Sets activeExam to retake and opens ExamModal.',
         api: 'Indirectly calls POST /modules/{module_id}/attempts/start, then GET /attempts/{attempt_id}/questions.',
       },
       {

@@ -53,8 +53,11 @@ The `checklist_status` enum defines the allowed status values for a user's modul
 
 ```sql
 CREATE TYPE checklist_status AS ENUM (
-    'Completed',
-    'Incomplete'
+    'Not Started',
+    'In Progress',
+    'Submitted',
+    'Rejected',
+    'Completed'
 );
 ```
 
@@ -62,10 +65,13 @@ Allowed values:
 
 | Value        | Description                                      |
 | ------------ | ------------------------------------------------ |
-| `Completed`  | The user has completed the module checklist.     |
-| `Incomplete` | The user has not completed the module checklist. |
+| `Not Started` | The user is assigned but has not started an editable attempt. |
+| `In Progress` | The user has started or resumed an editable attempt. |
+| `Submitted` | The learner submitted an approval-required attempt for review. |
+| `Rejected` | The latest approval decision rejected the attempt and the learner can retry. |
+| `Completed` | The module assignment workflow is complete. |
 
-The default status for a newly created checklist assignment is `Incomplete`.
+The default status for a newly created checklist assignment is `Not Started`.
 
 ---
 
@@ -394,7 +400,7 @@ CREATE TABLE user_checklist_status (
 
     user_id BIGINT NOT NULL,
     module_id BIGINT NOT NULL,
-    status checklist_status NOT NULL DEFAULT 'Incomplete',
+    status checklist_status NOT NULL DEFAULT 'Not Started',
     assignee_id BIGINT,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -430,7 +436,7 @@ CREATE TABLE user_checklist_status (
 | `id`          | `BIGSERIAL`        | Primary key                         | Unique identifier for the checklist status record.        |
 | `user_id`     | `BIGINT`           | Not null, foreign key               | User whose checklist progress is being tracked.           |
 | `module_id`   | `BIGINT`           | Not null, foreign key               | Module assigned to the user.                              |
-| `status`      | `checklist_status` | Not null, default `Incomplete`      | Current completion status of the module checklist.        |
+| `status`      | `checklist_status` | Not null, default `Not Started`     | Assignment workflow status for the module checklist.      |
 | `assignee_id` | `BIGINT`           | Nullable, foreign key               | User responsible for assigning or managing the checklist. |
 | `created_at`  | `TIMESTAMPTZ`      | Not null, default current timestamp | Date and time when the assignment was created.            |
 | `updated_at`  | `TIMESTAMPTZ`      | Not null, default current timestamp | Date and time when the assignment was last updated.       |
@@ -697,7 +703,7 @@ When creating a new module assignment:
 3. Optionally provide an `assignee_id`.
 4. Optionally provide `reports_to`, `email`, `department`, and `role_id` on the user profile.
 5. Create the checklist status record.
-6. Use `Incomplete` as the default status when no status is provided.
+6. Use `Not Started` as the default status when no status is provided.
 
 Example:
 
@@ -717,15 +723,15 @@ VALUES (
 The inserted record will automatically receive:
 
 ```text
-status = Incomplete
+status = Not Started
 ```
 
-To mark the checklist as completed:
+To update assignment workflow status:
 
 ```sql
 UPDATE user_checklist_status
 SET
-    status = 'Completed',
+    status = 'In Progress',
     updated_at = CURRENT_TIMESTAMP
 WHERE user_id = 1
   AND module_id = 3;
@@ -895,32 +901,6 @@ The exam-related database structure uses the following tables:
 
 ## PostgreSQL Enums
 
-### `exam_attempt_status`
-
-The `exam_attempt_status` enum describes the lifecycle of an exam attempt.
-
-```sql
-CREATE TYPE exam_attempt_status AS ENUM (
-    'Not Started',
-    'In Progress',
-    'Submitted',
-    'Completed',
-    'Abandoned'
-);
-```
-
-Allowed values:
-
-| Value         | Description                                                                  |
-| ------------- | ---------------------------------------------------------------------------- |
-| `Not Started` | The attempt record exists, but the user has not started answering questions. |
-| `In Progress` | The user has started the checklist and may resume later.                     |
-| `Submitted`   | The user has submitted the attempt for scoring or validation.                |
-| `Completed`   | The attempt has been fully processed and completed.                          |
-| `Abandoned`   | The attempt was stopped and should no longer be continued.                   |
-
----
-
 ### `exam_result_status`
 
 The `exam_result_status` enum stores the approval-oriented result state of an attempt.
@@ -1017,9 +997,6 @@ CREATE TABLE user_exam_attempt (
 
     attempt_no INTEGER NOT NULL DEFAULT 1,
 
-    attempt_status exam_attempt_status
-        NOT NULL DEFAULT 'Not Started',
-
     result_status exam_result_status
         NOT NULL DEFAULT 'PENDING',
 
@@ -1083,7 +1060,6 @@ CREATE TABLE user_exam_attempt (
 | `user_id`                  | `BIGINT`              | Not null, foreign key | User taking the checklist.                         |
 | `module_id`                | `BIGINT`              | Not null, foreign key | Module being attempted.                            |
 | `attempt_no`               | `INTEGER`             | Not null, positive    | Attempt number for the user and module.            |
-| `attempt_status`           | `exam_attempt_status` | Not null              | Current lifecycle status of the attempt.           |
 | `result_status`            | `exam_result_status`  | Not null              | Approval/result state: `PENDING`, `IN_PROGRESS`, `APPROVED`, `REJECTED`, or `CANCELLED`. |
 | `total_questions`          | `INTEGER`             | Not null, nonnegative | Total number of questions included in the attempt. |
 | `answered_questions`       | `INTEGER`             | Not null, nonnegative | Number of questions currently answered.            |
@@ -1105,6 +1081,10 @@ CREATE TABLE user_exam_attempt (
 * `correct_answers` cannot exceed `answered_questions`.
 * `score` must be between `0` and `100`.
 * Approval-related result states are stored in `result_status`.
+* Assignment workflow states are stored in `user_checklist_status.status`, not
+  on the attempt row.
+* Frontend `attemptStatus` values are derived from attempt timestamps,
+  `result_status`, approval state, or the active assignment status.
 * A submitted attempt that needs manual review should have one linked `approval_request`.
 * The backend should update `last_saved_at` whenever an answer is saved.
 * The backend should update `answered_questions` after answers are inserted, updated, or cleared.
@@ -1310,9 +1290,6 @@ CREATE INDEX idx_user_exam_attempt_user
 CREATE INDEX idx_user_exam_attempt_module
     ON user_exam_attempt(module_id);
 
-CREATE INDEX idx_user_exam_attempt_status
-    ON user_exam_attempt(attempt_status);
-
 CREATE INDEX idx_user_exam_answer_attempt
     ON user_exam_answer(attempt_id);
 
@@ -1452,7 +1429,6 @@ attempt_id PK
 user_id FK
 module_id FK
 attempt_no
-attempt_status
 result_status
 total_questions
 answered_questions
@@ -1504,13 +1480,14 @@ memo
 When a user clicks **Start Course** or **Start Checklist**:
 
 1. Confirm that the user has a `user_checklist_status` assignment.
-2. Check for an existing `In Progress` attempt.
+2. Check for an existing editable attempt whose `submitted_at` and
+   `completed_at` are both null.
 3. Resume the existing attempt when one is available.
 4. Otherwise, create a new `user_exam_attempt`.
 5. Calculate the next `attempt_no`.
 6. Count the questions for the selected module.
-7. Set `attempt_status` to `In Progress`.
-8. Set `started_at` to the current timestamp.
+7. Set `user_checklist_status.status` to `In Progress`.
+8. Set `started_at` to the current timestamp for newly created attempts.
 9. Create missing `user_exam_answer` shell rows for every question in the
    selected module.
 10. Return the new or existing `attempt_id` to the frontend.
@@ -1662,7 +1639,6 @@ SET
     answered_questions = progress.answered_questions,
     last_saved_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP,
-    attempt_status = 'In Progress'
 FROM (
     SELECT
         attempt_id,
@@ -1698,7 +1674,8 @@ progress = 65%
 
 To resume a checklist:
 
-1. Find the latest attempt with status `In Progress`.
+1. Find the latest editable attempt whose `submitted_at` and `completed_at` are
+   both null.
 2. Load all questions for the attempt's module.
 3. Load existing answers using `attempt_id`.
 4. Merge the saved answers into the question response.
@@ -1713,14 +1690,14 @@ SELECT
     attempt.user_id,
     attempt.module_id,
     attempt.attempt_no,
-    attempt.attempt_status,
     attempt.total_questions,
     attempt.answered_questions,
     attempt.last_saved_at
 FROM user_exam_attempt attempt
 WHERE attempt.user_id = $1
   AND attempt.module_id = $2
-  AND attempt.attempt_status = 'In Progress'
+  AND attempt.submitted_at IS NULL
+  AND attempt.completed_at IS NULL
 ORDER BY attempt.attempt_no DESC
 LIMIT 1;
 ```
@@ -1774,14 +1751,13 @@ When the user submits:
 5. Update each `user_exam_answer`.
 6. Calculate the final attempt score.
 7. Update `user_exam_attempt`.
-8. Leave `user_checklist_status` unchanged on submit; it is active access, not history.
+8. Update `user_checklist_status.status` in the same transaction as submit.
 
 Example attempt update:
 
 ```sql
 UPDATE user_exam_attempt
 SET
-    attempt_status = 'Completed',
     result_status = $2,
     correct_answers = $3,
     score = $4,
@@ -1792,20 +1768,24 @@ SET
 WHERE attempt_id = $1;
 ```
 
-For approval-required modules, assignment cleanup happens at approval decision time:
+For non-approval modules, mark the assignment completed on submit:
 
 ```sql
-DELETE FROM user_checklist_status assignment
+UPDATE user_checklist_status assignment
+SET
+    status = 'Completed',
+    updated_at = CURRENT_TIMESTAMP
 USING user_exam_attempt attempt
 WHERE attempt.attempt_id = $1
   AND assignment.user_id = attempt.user_id
-  AND assignment.module_id = attempt.module_id
-  AND $2 = 'APPROVED';
+  AND assignment.module_id = attempt.module_id;
 ```
 
-`REJECTED` attempts keep the active assignment so the learner can retry. Deleting
-the assignment must not delete `user_exam_attempt`, `user_exam_answer`, approval
-requests, or attachments.
+For approval-required modules, set assignment status to `Submitted` on submit,
+then set it to `Completed` or `Rejected` at approval decision time. `Rejected`
+assignments remain active so the learner can retry. Assignment status updates
+must not delete `user_exam_attempt`, `user_exam_answer`, approval requests, or
+attachments.
 
 ---
 

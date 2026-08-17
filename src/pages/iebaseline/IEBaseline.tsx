@@ -6,10 +6,10 @@ import { Progress } from '@/components/ui/progress';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, CheckCircle2, ClipboardList, Clock, PlayCircle, UserCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { ieBaselineApi, type IEBaselineHomeAssignment } from './api';
+import { ieBaselineApi, type IEBaselineHomeAssignment, type IEBaselineHomeStatus } from './api';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
-export type ModuleStatus = 'Not Started' | 'In Progress' | 'Completed';
+export type ModuleStatus = IEBaselineHomeStatus;
 
 export interface Lesson {
   id: string;
@@ -103,15 +103,25 @@ export default function IEBaseline() {
     switch (status) {
       case 'Completed': return 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20';
       case 'In Progress': return 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border-blue-500/20';
+      case 'Submitted': return 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-500/25';
+      case 'Rejected': return 'bg-red-500/10 text-red-600 hover:bg-red-500/20 border-red-500/25';
       case 'Not Started': return 'bg-muted text-muted-foreground hover:bg-muted/80';
     }
   };
 
-  const getActionLabel = (status: ModuleStatus, progress: number) => {
-    if (status === 'Completed' || progress >= 100) return 'Review Material';
-    if (status === 'In Progress') return 'Continue Module';
-    if (progress === 0) return 'Start Module';
-    return 'Continue Module';
+  const getActionLabel = (status: ModuleStatus, _progress: number) => {
+    switch (status) {
+      case 'Completed':
+        return 'Review Material';
+      case 'Submitted':
+        return 'View Submission';
+      case 'Rejected':
+        return 'Retake Module';
+      case 'In Progress':
+        return 'Continue Module';
+      case 'Not Started':
+        return 'Start Module';
+    }
   };
 
   const formatDate = (value: string) => {

@@ -55,8 +55,8 @@ export default function FinalResults() {
     refetchOnWindowFocus: false,
   });
 
-  const latestStoredAttempt = useMemo(() => getLatestCompletedAttempt(attemptHistory), [attemptHistory]);
-  const selectedAttemptId = numericAttemptId ?? submittedAttempt?.attemptId ?? latestStoredAttempt?.attemptId;
+  const latestResultAttempt = useMemo(() => getLatestResultAttempt(attemptHistory), [attemptHistory]);
+  const selectedAttemptId = numericAttemptId ?? submittedAttempt?.attemptId ?? latestResultAttempt?.attemptId;
 
   const {
     data: attemptQuestionsData,
@@ -70,7 +70,7 @@ export default function FinalResults() {
     refetchOnWindowFocus: false,
   });
 
-  const attempt = attemptQuestionsData?.attempt ?? latestStoredAttempt ?? submittedAttempt;
+  const attempt = attemptQuestionsData?.attempt ?? latestResultAttempt ?? submittedAttempt;
   const questions = attemptQuestionsData?.questions ?? [];
   const assignment = homeData?.assignments.find((item) => item.module_id === attempt?.moduleId || String(item.module_id) === moduleId);
   const moduleName = getModuleName(attempt, assignment?.module_name, questions);
@@ -121,7 +121,7 @@ export default function FinalResults() {
       <ResultsShell>
         <Card className="mx-auto max-w-2xl border-border/60 bg-background/70 p-8 text-center shadow-sm">
           <ClipboardCheck className="mx-auto mb-4 h-10 w-10 text-muted-foreground" />
-          <h1 className="text-2xl font-bold text-foreground">No Completed Attempt Found</h1>
+          <h1 className="text-2xl font-bold text-foreground">No Result Attempt Found</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             This module does not have a submitted checklist result available yet.
           </p>
@@ -165,7 +165,7 @@ export default function FinalResults() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <ResultMetric label="Result" value={attempt.resultStatus} />
               <ResultMetric label="Attempt" value={`#${attempt.attemptNo}`} />
-              <ResultMetric label="Completed" value={formatDateTime(getCompletedDate(attempt))} />
+              <ResultMetric label="Result Date" value={formatDateTime(getResultDate(attempt))} />
             </div>
           </div>
         </Card>
@@ -185,7 +185,7 @@ export default function FinalResults() {
             <div className="grid gap-3">
               <DetailRow label="Name" value={homeData?.user.name ?? 'N/A'} />
               <DetailRow label="Position" value={homeData?.user.position ?? 'N/A'} />
-              <DetailRow label="Date Completed" value={formatDateTime(getCompletedDate(attempt))} />
+              <DetailRow label="Result Date" value={formatDateTime(getResultDate(attempt))} />
             </div>
           </Card>
 
@@ -301,22 +301,29 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function getLatestCompletedAttempt(attempts: IEBaselineAttempt[]) {
+function getLatestResultAttempt(attempts: IEBaselineAttempt[]) {
   return attempts
-    .filter((attempt) => attempt.attemptStatus === 'Completed' || attempt.attemptStatus === 'Submitted')
+    .filter(isResultAttempt)
     .sort((left, right) => getAttemptSortTime(right) - getAttemptSortTime(left))[0];
 }
 
 function getAttemptSortTime(attempt: IEBaselineAttempt) {
-  const value = getCompletedDate(attempt) ?? attempt.startedAt;
+  const value = getResultDate(attempt) ?? attempt.startedAt;
   if (!value) return 0;
 
   const time = new Date(value).getTime();
   return Number.isNaN(time) ? 0 : time;
 }
 
-function getCompletedDate(attempt: IEBaselineAttempt) {
+function getResultDate(attempt: IEBaselineAttempt) {
   return attempt.completedAt ?? attempt.submittedAt ?? attempt.lastSavedAt;
+}
+
+function isResultAttempt(attempt: IEBaselineAttempt) {
+  if (attempt.submittedAt || attempt.completedAt) return true;
+  if (attempt.attemptStatus === 'Submitted' || attempt.attemptStatus === 'Completed' || attempt.attemptStatus === 'Rejected') return true;
+
+  return ['PENDING', 'IN_PROGRESS', 'APPROVED', 'REJECTED', 'CANCELLED', 'Passed', 'Failed'].includes(attempt.resultStatus);
 }
 
 function getModuleName(attempt: IEBaselineAttempt | undefined, assignmentName: string | undefined, questions: IEBaselineAttemptQuestion[]) {
