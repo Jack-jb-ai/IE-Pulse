@@ -1,7 +1,7 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Award, CalendarCheck, CheckCircle2, ChevronLeft, ClipboardCheck, Loader2, UserCircle, XCircle } from 'lucide-react';
+import { Award, CalendarCheck, CheckCircle2, ChevronLeft, ClipboardCheck, Download, Loader2, UserCircle, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import {
   type IEBaselineAttemptQuestion,
   type IEBaselineSubmitAttemptResponse,
 } from './api';
+import { exportIEBaselineQuestionResultsXlsx } from './questionResultsExport';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
 type ResultsLocationState = {
@@ -19,6 +20,7 @@ type ResultsLocationState = {
 };
 
 export default function FinalResults() {
+  const [isExportingQuestionResults, setIsExportingQuestionResults] = useState(false);
   const { moduleId, attemptId } = useParams<{ moduleId?: string; attemptId?: string }>();
   const numericModuleId = moduleId === undefined ? undefined : Number(moduleId);
   const numericAttemptId = attemptId === undefined ? undefined : Number(attemptId);
@@ -87,6 +89,21 @@ export default function FinalResults() {
   const resultStyle = getResultStyle(attempt?.resultStatus);
   const ResultIcon = resultStyle.Icon;
   const isWaitingForApproval = attempt?.resultStatus === 'PENDING' || attempt?.resultStatus === 'IN_PROGRESS';
+
+  const handleExportQuestionResults = async () => {
+    if (!attempt || questions.length === 0 || isExportingQuestionResults) return;
+
+    setIsExportingQuestionResults(true);
+    try {
+      await exportIEBaselineQuestionResultsXlsx({
+        questions,
+        moduleName,
+        attemptNo: attempt.attemptNo,
+      });
+    } finally {
+      setIsExportingQuestionResults(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -210,8 +227,19 @@ export default function FinalResults() {
       </div>
 
       <Card className="mx-auto mt-6 max-w-6xl overflow-hidden border-border/60 bg-background/70 shadow-sm">
-        <div className="border-b border-border/60 bg-muted/40 px-4 py-3">
+        <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-sm font-semibold text-foreground">Question Results</h2>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full gap-2 sm:w-auto"
+            disabled={questions.length === 0 || isExportingQuestionResults}
+            onClick={handleExportQuestionResults}
+          >
+            {isExportingQuestionResults ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Download
+          </Button>
         </div>
         {questions.length === 0 ? (
           <div className="p-6 text-sm text-muted-foreground">No saved answer detail is available for this attempt.</div>
