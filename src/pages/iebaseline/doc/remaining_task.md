@@ -1,8 +1,5 @@
-fix needed. 
-
 # Assign Modules module 
-  - current unassigning deletes all previous attempts probably due to PK constraint.
-  - As module count increase in the future, it might be difficult to assign module, might wanna add a filter/search module function. overall, needs rework for better UX.
+  - As module count increase in the future, it might be difficult to assign module, might wanna add a filter/search module function. overall, needs rework for better UX. REvamp Assign Modules module.
   - important fix** : do not show 'User ID'
 
 # Home
@@ -12,7 +9,7 @@ fix needed.
 
 # Approval module
   - notification template, include HTML, buttons, links etc etc make it a little fancy
-  - Rejected status makes score fixed at 0% instead of showing current score, missing retake button. do we need this...(UX)
+  - Rejected Flow: Continue Module starts a new attempt instead of continuing from the previous rejected attempt. 
 
 # User
   - Create User flow fix, assign reports_to. When? 
