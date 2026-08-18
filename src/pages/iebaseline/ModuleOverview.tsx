@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from '@/components/ui/use-toast';
 import {
   BookOpen,
   Calendar,
@@ -26,11 +27,14 @@ import { ieBaselineApi, type IEBaselineAttemptHistoryItem, type IEBaselineHomeSt
 import ExamModal from './components/ExamModal';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
-type ActiveExamMode = 'start' | 'review' | 'retake';
+type ActiveExam =
+  | { mode: 'start' }
+  | { mode: 'review' }
+  | { mode: 'retake'; attemptId: number };
 
 export default function ModuleOverview() {
   const { moduleId } = useParams<{ moduleId: string }>();
-  const [activeExam, setActiveExam] = useState<ActiveExamMode | null>(null);
+  const [activeExam, setActiveExam] = useState<ActiveExam | null>(null);
   const {
     ieBaselineUserId,
     isLoading: isResolvingCurrentUser,
@@ -70,6 +74,7 @@ export default function ModuleOverview() {
     () => [...attempts].sort((left, right) => getAttemptSortTime(right) - getAttemptSortTime(left)),
     [attempts],
   );
+  const latestRejectedAttempt = useMemo(() => getLatestRejectedAttempt(attempts), [attempts]);
 
   const formatDate = (value: string) => {
     const date = new Date(value);
@@ -142,6 +147,22 @@ export default function ModuleOverview() {
   const primaryActionLabel = assignment.status === 'Not Started' ? 'Start Module' : 'Continue Module';
   const assigneeName = assignment.assigned_by?.name ?? 'N/A';
   const ownerName = assignment.owner_name ?? 'N/A';
+  const openStartOrContinue = () => {
+    if (assignment.status === 'Rejected' && !latestRejectedAttempt) {
+      toast({
+        title: 'Unable to continue module',
+        description: attemptsError instanceof Error
+          ? attemptsError.message
+          : 'No rejected attempt was found for this module. Please refresh and try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setActiveExam(assignment.status === 'Rejected'
+      ? { mode: 'retake', attemptId: latestRejectedAttempt.attemptId }
+      : { mode: 'start' });
+  };
 
   return (
     <div className="space-y-6 p-6 max-w-7xl mx-auto">
@@ -215,7 +236,8 @@ export default function ModuleOverview() {
                       variant="ghost"
                       size="icon"
                       className="rounded-full opacity-0 group-hover:opacity-100 transition-opacity text-primary hover:bg-primary/10 hover:text-primary"
-                      onClick={() => setActiveExam('start')}
+                      disabled={assignment.status === 'Rejected' && isLoadingAttempts}
+                      onClick={openStartOrContinue}
                     >
                       <PlayCircle className="w-6 h-6" />
                     </Button>
@@ -313,13 +335,13 @@ export default function ModuleOverview() {
                   </div>
                 ) : isRejected ? (
                   <div className="grid gap-3">
-                    <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('start')}>
-                      Continue Module
-                      <PlayCircle className="w-5 h-5" />
+                    <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" disabled={isLoadingAttempts} onClick={openStartOrContinue}>
+                      {isLoadingAttempts ? 'Loading Attempt...' : 'Continue Module'}
+                      {isLoadingAttempts ? <Loader2 className="w-5 h-5 animate-spin" /> : <PlayCircle className="w-5 h-5" />}
                     </Button>
                   </div>
                 ) : (
-                  <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={() => setActiveExam('start')}>
+                  <Button className="w-full h-12 text-md font-semibold gap-2 shadow-sm" size="lg" onClick={openStartOrContinue}>
                     {primaryActionLabel}
                     <PlayCircle className="w-5 h-5" />
                   </Button>
@@ -373,7 +395,8 @@ export default function ModuleOverview() {
           moduleId={assignment.module_id}
           moduleName={assignment.module_name}
           userId={ieBaselineUserId!}
-          reviewOnly={activeExam === 'review'}
+          reviewOnly={activeExam.mode === 'review'}
+          initialAttemptId={activeExam.mode === 'retake' ? activeExam.attemptId : undefined}
           onClose={() => setActiveExam(null)}
         />
       )}
@@ -469,6 +492,12 @@ function getAttemptSortTime(attempt: IEBaselineAttemptHistoryItem) {
 
   const time = new Date(value).getTime();
   return Number.isNaN(time) ? 0 : time;
+}
+
+export function getLatestRejectedAttempt(attempts: IEBaselineAttemptHistoryItem[]) {
+  return attempts
+    .filter((attempt) => attempt.attemptStatus === 'Rejected' || attempt.resultStatus === 'REJECTED')
+    .sort((left, right) => getAttemptSortTime(right) - getAttemptSortTime(left))[0];
 }
 
 function getResultDate(attempt: IEBaselineAttemptHistoryItem) {

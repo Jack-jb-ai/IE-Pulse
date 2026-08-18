@@ -1422,17 +1422,19 @@ POST /api/iebaseline/modules/3/attempts/start?user_id=1
   `ON CONFLICT (attempt_id, question_id) DO NOTHING`.
 * Shell values are `selected_answer = NULL`, `is_answered = FALSE`,
   `is_attached = FALSE`, scoring fields null, and timestamps set.
-* The start action is the attempt creation boundary. Do not wait for the first
-  saved answer before inserting `user_exam_attempt` or answer shells.
+* The `Start Module` action after assignment is the attempt creation boundary.
+  Do not wait for the first saved answer before inserting `user_exam_attempt`
+  or answer shells.
 * Do not reuse `Completed` or `Submitted` attempts for editable starts or
-  retakes. Those attempts remain available for read-only review through attempt
+  new attempts. Those attempts remain available for read-only review through attempt
   history and attempt questions.
 * Require an active `user_checklist_status` row for the learner and module before
   creating or resuming an editable attempt.
 * Reject editable starts while a submitted attempt for the same learner/module
   is still waiting for approval with result status `PENDING` or `IN_PROGRESS`.
-* After an attempt is `REJECTED`, keep the assignment active and allow a fresh
-  `In Progress` retry.
+* After an attempt is `REJECTED`, keep the assignment active and allow the
+  learner to continue the latest rejected attempt by `attempt_id`; do not create
+  a fresh attempt for **Continue Module**.
 * After an attempt is `APPROVED`, the assignment remains active with status
   `Completed`; starts are only allowed again if a later workflow explicitly
   reassigns or reopens it.
@@ -1622,7 +1624,9 @@ whitespace-only values are treated as not answered.
 * Validate that the attempt exists and is still editable.
 * Learner editability is determined from `user_checklist_status.status`, not
   from `user_exam_attempt.result_status`.
-* Only assignments with status `In Progress` may be saved by the learner.
+* Assignments with status `In Progress` may be saved by the learner.
+* Assignments with status `Rejected` may also be saved by the learner when the
+  request targets the latest rejected attempt for that learner/module.
   `result_status = IN_PROGRESS` means an approver is actively reviewing and
   must not unlock learner editing.
 * Validate that the question belongs to the attempt's module.
@@ -1931,6 +1935,9 @@ The backend should expect this request sequence from the current frontend:
   question before advancing.
 * Clicking **Finish Checklist** sends one save request for the final question,
   then sends this submit request.
+* Clicking **Continue Module** for a rejected assignment loads the latest
+  rejected attempt with `GET /attempts/{attempt_id}/questions`, prefills saved
+  answers, and saves/submits changes against the same `attempt_id`.
 * If submit returns `UNANSWERED_QUESTIONS`, navigate back to the returned
   unanswered question instead of treating the attempt as complete.
 * Closing the modal or browser does not save unsaved local selection changes.

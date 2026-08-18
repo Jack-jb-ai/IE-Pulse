@@ -116,7 +116,7 @@ Features:
   dates.
 * Starts or continues available checklist assignments.
 * Shows submitted assignments as waiting for approval without opening a new editable attempt.
-* Lets rejected modules continue through the start/resume endpoint.
+* Lets rejected modules continue on the latest rejected attempt without creating a new attempt.
 * Treats completed modules as a view-only fallback if the backend still returns them.
 
 API calls:
@@ -131,7 +131,7 @@ Actions and triggers:
 | --- | --- | --- | --- |
 | Start Module / Continue Module | Assignment is `Not Started` or `In Progress` | Sets `activeExam = "start"` and opens `ExamModal` | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |
 | View Module / Result | Assignment is `Submitted` | Routes to the legacy latest module result route without starting a new attempt | Target page calls `GET /modules/{module_id}/attempts`, then `GET /attempts/{attempt_id}/questions` |
-| Continue Module | Assignment is `Rejected` | Sets `activeExam = "start"` and opens `ExamModal` through the start/resume endpoint | Indirectly calls `POST /modules/{module_id}/attempts/start`, then `GET /attempts/{attempt_id}/questions` |
+| Continue Module | Assignment is `Rejected` | Selects the latest rejected attempt, sets `activeExam = "retake"`, and opens `ExamModal` with `initialAttemptId` | Calls `GET /attempts/{attempt_id}/questions`; does not call `POST /modules/{module_id}/attempts/start` |
 | View Module / Result | Assignment is `Completed` | Routes to the legacy latest module result route | Target page calls `GET /modules/{module_id}/attempts`, then `GET /attempts/{attempt_id}/questions` |
 | Back to Dashboard | Loaded module overview page | Routes to `/iebaseline` | No direct call; dashboard calls `GET /home` |
 
@@ -141,7 +141,8 @@ File: `src/pages/iebaseline/components/ExamModal.tsx`
 
 Features:
 
-* Starts or resumes the active module attempt.
+* Starts or resumes the active module attempt for normal `Start Module` and in-progress `Continue Module`.
+* Opens a provided `initialAttemptId` directly for rejected `Continue Module`.
 * Uses the resolved `userId` passed from `ModuleOverview`.
 * Loads attempt history for review mode.
 * Loads questions and saved answers for the active attempt.

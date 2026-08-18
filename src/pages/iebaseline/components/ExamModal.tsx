@@ -31,12 +31,14 @@ interface ExamModalProps {
   onClose: () => void;
   reviewOnly?: boolean;
   approvalId?: number;
+  initialAttemptId?: number;
 }
 
-export default function ExamModal({ moduleId, moduleName, userId, onClose, reviewOnly = false, approvalId }: ExamModalProps) {
+export default function ExamModal({ moduleId, moduleName, userId, onClose, reviewOnly = false, approvalId, initialAttemptId }: ExamModalProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const isApprovalReview = approvalId !== undefined;
+  const isRejectedResume = initialAttemptId !== undefined;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [progress, setProgress] = useState<IEBaselineAttemptProgress | null>(null);
@@ -56,7 +58,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   } = useQuery({
     queryKey: ['iebaseline', 'modules', moduleId, 'attempts', 'active', userId],
     queryFn: () => ieBaselineApi.modules.attempts.start(moduleId, userId),
-    enabled: !reviewOnly && !isApprovalReview,
+    enabled: !reviewOnly && !isApprovalReview && !isRejectedResume,
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -89,7 +91,7 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   });
 
   const activeAttempt = isApprovalReview ? approvalReviewData?.attempt : reviewOnly ? reviewAttempt : startData?.attempt;
-  const attemptId = activeAttempt?.attemptId;
+  const attemptId = initialAttemptId ?? activeAttempt?.attemptId;
   const approval = approvalReviewData?.approval;
   const isTerminalApproval = approval?.status === 'APPROVED' || approval?.status === 'REJECTED' || approval?.status === 'CANCELLED';
 
@@ -276,11 +278,14 @@ export default function ExamModal({ moduleId, moduleName, userId, onClose, revie
   const progressPct = totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0;
   const canEditAnswers = isApprovalReview
     ? !isTerminalApproval
-    : !reviewOnly && isAttemptEditable(attempt);
+    : !reviewOnly && isAttemptEditable(attempt, isRejectedResume);
   const isReviewMode = !canEditAnswers;
-  const isLoading = isApprovalReview ? isLoadingApprovalReview : (reviewOnly ? isLoadingHistory : isStarting) || isLoadingQuestions;
-  const isError = isApprovalReview ? isApprovalReviewError : (reviewOnly ? isHistoryError : isStartError) || isQuestionsError;
-  const error = isApprovalReview ? approvalReviewError : (reviewOnly ? historyError : startError) ?? questionsError;
+  const isAttemptSelectionLoading = reviewOnly ? isLoadingHistory : isRejectedResume ? false : isStarting;
+  const isAttemptSelectionError = reviewOnly ? isHistoryError : isRejectedResume ? false : isStartError;
+  const attemptSelectionError = reviewOnly ? historyError : isRejectedResume ? null : startError;
+  const isLoading = isApprovalReview ? isLoadingApprovalReview : isAttemptSelectionLoading || isLoadingQuestions;
+  const isError = isApprovalReview ? isApprovalReviewError : isAttemptSelectionError || isQuestionsError;
+  const error = isApprovalReview ? approvalReviewError : attemptSelectionError ?? questionsError;
   const isBusy = saveAnswerMutation.isPending || submitAttemptMutation.isPending || decisionMutation.isPending || startApprovalMutation.isPending;
   const isMissingAnswerShell = Boolean(question && canEditAnswers && question.answer.answerId === null);
   const hasAttachmentSection = question?.attachmentRequirement === 'required' || question?.attachmentRequirement === 'optional';
@@ -782,11 +787,16 @@ function getLatestReviewAttempt(attempts: IEBaselineAttempt[]) {
     .sort((left, right) => getAttemptSortTime(right) - getAttemptSortTime(left))[0];
 }
 
-function isAttemptEditable(attempt: IEBaselineAttempt | undefined) {
+function isAttemptEditable(attempt: IEBaselineAttempt | undefined, allowRejectedResume = false) {
   if (!attempt) return true;
+  if (allowRejectedResume && isRejectedAttempt(attempt)) return true;
   if (attempt.submittedAt || attempt.completedAt) return false;
 
   return attempt.attemptStatus !== 'Submitted' && attempt.attemptStatus !== 'Completed';
+}
+
+function isRejectedAttempt(attempt: IEBaselineAttempt) {
+  return attempt.attemptStatus === 'Rejected' || attempt.resultStatus === 'REJECTED';
 }
 
 function isReviewableAttempt(attempt: IEBaselineAttempt) {

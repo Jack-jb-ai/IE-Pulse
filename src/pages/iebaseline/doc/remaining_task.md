@@ -9,12 +9,7 @@
 
 # Approval module
   - notification template, include HTML, buttons, links etc etc make it a little fancy
-  - Rejected Flow: Continue Module starts a new attempt instead of continuing from the previous rejected attempt. 
-
-# User
-  - Create User flow fix, assign reports_to. When? 
-  - Link other columns such as WD_ID etc
-  - Refresh multiple times during user first visit/login into IEBaseline. Would this create multiple instance/trigger multiple API thus making the user creation bugged. 
+  - Add delegate to action for Approvals
 
 # Future modules (v2)
 # Module Management (Admin)

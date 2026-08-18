@@ -86,8 +86,8 @@ const pages = [
       'Shows module name, description, progress, status, metadata, assignee, and owner.',
       'Starts or continues available checklist assignments.',
       'Shows submitted assignments as waiting for approval without opening a new editable attempt.',
-      'For rejected modules, exposes retake and prior result actions.',
-      'For completed modules, exposes review, retake, and result actions.',
+      'For rejected modules, continues the latest rejected attempt without creating a new attempt.',
+      'For completed modules, exposes result actions.',
     ],
     apis: ['POST /users/resolve-current', 'GET /home?user_id=...'],
     actions: [
@@ -106,8 +106,8 @@ const pages = [
       {
         trigger: 'Continue Module',
         condition: 'Shown as the primary action when assignment.status is Rejected.',
-        result: 'Sets activeExam to start and opens ExamModal through the start/resume endpoint.',
-        api: 'Indirectly calls POST /modules/{module_id}/attempts/start, then GET /attempts/{attempt_id}/questions.',
+        result: 'Sets activeExam to retake and opens ExamModal with the latest rejected attempt ID.',
+        api: 'Calls GET /attempts/{attempt_id}/questions without calling POST /modules/{module_id}/attempts/start.',
       },
       {
         trigger: 'View Module / Result',
@@ -516,7 +516,7 @@ const flow = [
   'Current-user resolution obtains ieBaselineUserId before learner-scoped API calls.',
   'Dashboard loads GET /home and links to module overview.',
   'Module overview loads GET /home, finds the matching assignment, and opens ExamModal.',
-  'ExamModal starts/resumes an attempt, loads questions, saves or clears answers, then submits.',
+  'ExamModal starts/resumes normal attempts, or opens a provided rejected attempt ID directly, then loads questions, saves or clears answers, and submits.',
   'Submit navigates to /iebaseline/attempts/:attemptId/results with the submit result in navigation state.',
   'Backend sends the approval request notification after the submit workflow commits.',
   'Final results reloads the selected attempt questions, then displays that attempt answer and score detail.',
