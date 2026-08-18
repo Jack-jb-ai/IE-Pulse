@@ -1159,6 +1159,9 @@ CREATE TABLE approval_request (
 
 * Each attempt may have at most one approval request.
 * Approval requests are assigned to `user_master.user_id`.
+* Active approval requests may be delegated by the current `assigned_to` user to
+  another admin user (`user_master.role_id = 2`); delegation updates
+  `assigned_to` and `updated_at` only.
 * The backend should validate that the current user is allowed to act on the request before changing status or remarks.
 * Set `completed_at` when the request reaches `APPROVED`, `REJECTED`, or `CANCELLED`.
 * Keep `user_exam_attempt.result_status` and `approval_request.status` synchronized intentionally in service logic.

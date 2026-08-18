@@ -758,11 +758,12 @@ Status: `500 Internal Server Error`
 
 ## GET /api/iebaseline/users/search
 
-Searches users for User Management selectors, including `reports_to` dropdowns.
-This endpoint is intended to avoid fetching every user record when the frontend
-only needs a searchable pick list.
+Searches users for User Management selectors, approval delegation, and
+`reports_to` dropdowns. This endpoint is intended to avoid fetching every user
+record when the frontend only needs a searchable pick list.
 
-Authorization: requires `current_user_id` with access to `/iebaseline/users`.
+Authorization: requires `current_user_id` with access to either
+`/iebaseline/users` or `/iebaseline/approvals/:approvalId/review`.
 
 ### Request
 
@@ -772,6 +773,7 @@ Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 | Query parameter | `q`, optional string |
 | Query parameter | `limit`, optional integer, defaults to `25` |
 | Query parameter | `exclude_user_id`, optional integer |
+| Query parameter | `role_id`, optional integer |
 | Query parameter | `current_user_id`, required integer |
 | Request body | None |
 
@@ -779,6 +781,10 @@ Authorization: requires `current_user_id` with access to `/iebaseline/users`.
 
 ```http
 GET /api/iebaseline/users/search?q=jack&limit=25&exclude_user_id=42&current_user_id=5
+```
+
+```http
+GET /api/iebaseline/users/search?q=alex&limit=25&role_id=2&current_user_id=5
 ```
 
 ### Success Response
@@ -808,6 +814,8 @@ Status: `200 OK`
 * Search case-insensitively across `name`, `wd_id::text`, and `email`.
 * Exclude `exclude_user_id` when supplied. This prevents assigning a user as
   their own manager in Update User.
+* Filter to `user_master.role_id = role_id` when supplied. Approval delegation
+  uses `role_id=2` to show only admin users.
 * Order by best match, then `name`, then `user_id`.
 * Return at most `limit` rows.
 
@@ -2382,6 +2390,58 @@ Status: `200 OK`
   }
 }
 ```
+
+### POST /api/iebaseline/approvals/{approval_id}/delegate
+
+Reassigns an active approval request to another admin user.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | Main application authentication; reviewer body field required |
+| Path parameter | `approval_id`, required integer |
+| Request body | JSON object with `reviewerUserId` and `delegateToUserId` |
+
+```json
+{
+  "reviewerUserId": 5,
+  "delegateToUserId": 9
+}
+```
+
+Validation:
+
+* `reviewerUserId` must match the current `approval_request.assigned_to`.
+* Approval status must not be `APPROVED`, `REJECTED`, or `CANCELLED`.
+* `delegateToUserId` must exist in `user_master`.
+* `delegateToUserId` must have `role_id = 2`.
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "approval": {
+    "approvalId": 7,
+    "attemptId": 15,
+    "assignedTo": 9,
+    "status": "PENDING",
+    "remarks": null,
+    "createdAt": "2026-08-05T10:00:01+08:00",
+    "updatedAt": "2026-08-18T10:30:00+08:00",
+    "completedAt": null
+  }
+}
+```
+
+### Backend Behavior
+
+* Updates `approval_request.assigned_to` to `delegateToUserId`.
+* Updates `approval_request.updated_at`.
+* Sends a best-effort `APPROVAL_REQUEST` notification to the delegated admin
+  after the database update succeeds.
 
 ### GET /api/iebaseline/approvals/{approval_id}/review
 
