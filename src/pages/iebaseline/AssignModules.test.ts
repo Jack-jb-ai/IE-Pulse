@@ -5,6 +5,7 @@ import {
   USER_PAGE_SIZE,
   filterAssignableModules,
   filterAssignableUsers,
+  getModuleAssignmentChanges,
   getUniqueModuleTypes,
   paginateItems,
   toggleCurrentPageSelection,
@@ -58,5 +59,13 @@ describe('Modules Assignment helpers', () => {
     expect(filterAssignableModules(modules, 'site', MODULE_TYPE_ALL).map((module) => module.module_id)).toEqual([11]);
     expect(filterAssignableModules(modules, '', 'Global').map((module) => module.module_id)).toEqual([10]);
     expect(filterAssignableModules(modules, 'inventory', MODULE_TYPE_UNSPECIFIED).map((module) => module.module_id)).toEqual([12]);
+  });
+
+  it('counts edit draft assignment changes', () => {
+    const changes = getModuleAssignmentChanges(new Set([2, 3, 4]), new Set([1, 2, 3]));
+
+    expect(changes.toAdd).toEqual([4]);
+    expect(changes.toRemove).toEqual([1]);
+    expect(changes.unchanged).toEqual([2, 3]);
   });
 });

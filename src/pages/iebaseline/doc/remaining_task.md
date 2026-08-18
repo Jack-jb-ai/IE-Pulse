@@ -1,7 +1,3 @@
-# Assign Modules module 
-  - As module count increase in the future, it might be difficult to assign module, might wanna add a filter/search module function. overall, needs rework for better UX. REvamp Assign Modules module.
-  - important fix** : do not show 'User ID'
-
 # Home
   - Add Time remaining for each assignment, when assigned. 
   - New days remaining beside status column.
