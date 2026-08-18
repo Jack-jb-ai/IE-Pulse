@@ -14,6 +14,14 @@ export interface CurrentUser {
   department: string | null;
   jobTitle: string | null;
   location: string | null;
+  wdId: number | null;
+  manager: CurrentUserManager | null;
+}
+
+export interface CurrentUserManager {
+  name: string | null;
+  email: string | null;
+  position: string | null;
 }
 
 interface ApiUserInfo {
@@ -23,6 +31,19 @@ interface ApiUserInfo {
   department?: string;
   title?: string;
   officeLocation?: string;
+  hc?: {
+    legalName?: string | null;
+    employeeId?: string | number | null;
+    businessTitle?: string | null;
+    dept?: string | null;
+    managerChain?: ApiUserManager[] | null;
+  } | null;
+}
+
+interface ApiUserManager {
+  legalName?: string | null;
+  email?: string | null;
+  businessTitle?: string | null;
 }
 
 let cached: CurrentUser | null = null;
@@ -37,18 +58,37 @@ async function fetchUser(): Promise<CurrentUser> {
       return res.json();
     })
     .then((data: ApiUserInfo): CurrentUser => {
+      const firstManager = data.hc?.managerChain?.[0] ?? null;
       const user: CurrentUser = {
-        fullName: data.userName ?? null,
+        fullName: data.userName ?? data.hc?.legalName ?? null,
         email: data.userEmail ?? null,
-        department: data.department ?? null,
-        jobTitle: data.title ?? null,
+        department: data.department ?? data.hc?.dept ?? null,
+        jobTitle: data.title ?? data.hc?.businessTitle ?? null,
         location: data.officeLocation ?? null,
+        wdId: parseNumericId(data.userNtid) ?? parseNumericId(data.hc?.employeeId),
+        manager: firstManager ? {
+          name: firstManager.legalName ?? null,
+          email: firstManager.email ?? null,
+          position: firstManager.businessTitle ?? null,
+        } : null,
       };
       cached = user;
       return user;
     })
     .finally(() => { inflight = null; });
   return inflight;
+}
+
+function parseNumericId(value: string | number | null | undefined) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  const trimmed = value?.trim();
+  if (!trimmed || !/^\d+$/.test(trimmed)) return null;
+
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 /** Split a name on whitespace AND camel-case boundaries, e.g. "SyedFaizAlhady SyedAhmadAlhady" → ["Syed","Faiz","Alhady","Syed","Ahmad","Alhady"]. */

@@ -78,4 +78,53 @@ describe('IE Baseline API protected actor params', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/ietools/iebaseline/api/attempts?user_id=7');
     expect(fetchMock.mock.calls[1][0]).toBe('/ietools/iebaseline/api/attempts?user_id=7&module_id=3');
   });
+
+  it('sends wd_id and manager details when resolving the current user', async () => {
+    await ieBaselineApi.users.resolveCurrent({
+      name: 'Jack Goh',
+      email: 'Jack_Goh@jabil.com',
+      position: 'IE Engineer II',
+      department: 'Industrial Engineering',
+      wd_id: 4389269,
+      manager: {
+        name: 'Badrolhisham Bahari',
+        email: 'BadrolHisham_Bahari@Jabil.com',
+        position: 'IE Section Manager',
+      },
+    });
+
+    const fetchMock = vi.mocked(fetch);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/ietools/iebaseline/api/users/resolve-current');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      email: 'Jack_Goh@jabil.com',
+      wd_id: 4389269,
+      manager: {
+        email: 'BadrolHisham_Bahari@Jabil.com',
+      },
+    });
+  });
+
+  it('posts manager details to the background sync endpoint', async () => {
+    await ieBaselineApi.users.syncManager(42, {
+      manager: {
+        name: 'Badrolhisham Bahari',
+        email: 'BadrolHisham_Bahari@Jabil.com',
+        position: 'IE Section Manager',
+      },
+    });
+
+    const fetchMock = vi.mocked(fetch);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/ietools/iebaseline/api/users/42/sync-manager');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      manager: {
+        name: 'Badrolhisham Bahari',
+        email: 'BadrolHisham_Bahari@Jabil.com',
+        position: 'IE Section Manager',
+      },
+    });
+  });
 });

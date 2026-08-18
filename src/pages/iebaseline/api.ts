@@ -97,6 +97,14 @@ export interface IEBaselineResolveCurrentUserRequest {
   email: string;
   position: string | null;
   department: string | null;
+  wd_id: number | null;
+  manager?: IEBaselineCurrentUserManager | null;
+}
+
+export interface IEBaselineCurrentUserManager {
+  name: string | null;
+  email: string;
+  position: string | null;
 }
 
 export interface IEBaselineResolveCurrentUserResponse {
@@ -109,6 +117,18 @@ export interface IEBaselineResolveCurrentUserResponse {
   role_id: number | null;
   reports_to: number | null;
   created: boolean;
+}
+
+export interface IEBaselineSyncManagerRequest {
+  manager: IEBaselineCurrentUserManager;
+}
+
+export interface IEBaselineSyncManagerResponse {
+  user_id: number;
+  reports_to: number | null;
+  manager_user_id: number | null;
+  manager_created?: boolean;
+  updated?: boolean;
 }
 
 export interface IEBaselineSystemModule {
@@ -508,6 +528,12 @@ export const ieBaselineApi = {
       sendJson<IEBaselineResolveCurrentUserResponse, IEBaselineResolveCurrentUserRequest>(
         'POST',
         '/users/resolve-current',
+        payload,
+      ),
+    syncManager: (userId: number, payload: IEBaselineSyncManagerRequest) =>
+      sendJson<IEBaselineSyncManagerResponse, IEBaselineSyncManagerRequest>(
+        'POST',
+        `/users/${encodeURIComponent(String(userId))}/sync-manager`,
         payload,
       ),
     modules: {
