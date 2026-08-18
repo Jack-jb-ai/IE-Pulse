@@ -287,38 +287,37 @@ Actions and triggers:
 | Review | Approval inbox row | Routes to full-screen approval review | Target route calls `GET /approvals/{approval_id}/review` |
 | Result | My Submissions row | Routes to the module result page | Target page calls `GET /home` and `GET /modules/{module_id}/attempts` |
 
-### Assign Modules
+### Modules Assignment
 
 File: `src/pages/iebaseline/AssignModules.tsx`
 
 Features:
 
 * Resolves the current IE Baseline user for `assignee_id`.
-* Loads all assignable users.
-* Loads all modules available for assignment.
-* Loads selected user's assigned module IDs.
-* Tracks draft assignment changes locally.
-* Applies assignment changes through the update API.
-* Invalidates user, selected user module, and home queries after save.
+* Loads all assignable users and modules available for assignment.
+* Filters users by name, position, and WD ID.
+* Supports multi-select users with page-scoped select all and 15 users per client page.
+* Filters modules by module name and `module_type`.
+* Bulk adds selected modules to selected users.
+* Preserves existing assignments and learner progress.
+* Invalidates user, module, and home queries after save.
 
 API calls:
 
 * `POST /users/resolve-current`
 * `GET /users`
 * `GET /modules`
-* `GET /users/{user_id}/modules`
-* `PUT /users/{user_id}/modules`
+* `POST /users/modules/bulk-add`
 
 Actions and triggers:
 
 | Trigger | Condition | Result | API impact |
 | --- | --- | --- | --- |
-| Manage user | Each user row | Sets `selectedUser` and enables selected user modules query | `GET /users/{user_id}/modules` |
-| Module checkbox | User is selected and modules are loaded | Adds/removes `module_id` in local draft state | No immediate API call |
-| Reset | Unsaved assignment changes exist | Restores draft IDs from loaded assignments | No API call |
-| Remove selected | Draft assignments are not empty | Clears all draft selected module IDs | No immediate API call |
-| Apply changes / Confirm apply | Unsaved assignment changes exist | Saves sorted `module_ids` and invalidates related queries | `PUT /users/{user_id}/modules` |
-| Back to Users | A user is selected | Clears selected user and draft state | No API call |
+| User search | Users are loaded | Filters users by name, position, or WD ID and resets to page 1 | No immediate API call |
+| User checkbox / page select all | Users are visible on the current filtered page | Adds/removes `user_id` values in local selected state | No immediate API call |
+| Module search / type filter | Modules are loaded | Filters modules by `module_name` and `module_type` | No immediate API call |
+| Module checkbox / visible select all | Modules are visible under the current filter | Adds/removes `module_id` values in local selected state | No immediate API call |
+| Assign Modules / Confirm apply | At least one user and module are selected | Bulk adds selected modules to selected users and invalidates user, module, and home queries | `POST /users/modules/bulk-add` |
 
 ### User Management
 
@@ -394,9 +393,9 @@ Actions and triggers:
 
 | Method | Frontend path | Wrapper | Used by | Purpose |
 | --- | --- | --- | --- | --- |
-| POST | `/users/resolve-current` | `users.resolveCurrent` | Dashboard, module overview, final results, assign modules | Resolve AD/staging current user to `user_master.user_id` |
+| POST | `/users/resolve-current` | `users.resolveCurrent` | Dashboard, module overview, final results, Modules Assignment | Resolve AD/staging current user to `user_master.user_id` |
 | GET | `/home?user_id=...` | `ieBaselineApi.home.get` | Dashboard, module overview, final results | Load learner profile and assigned modules |
-| GET | `/users` | `ieBaselineApi.users.list` | Assign modules | Load assignable users |
+| GET | `/users` | `ieBaselineApi.users.list` | Modules Assignment | Load assignable users |
 | GET | `/users/search?q=...` | `ieBaselineApi.users.search` | User Management | Search users by name, WD ID, or email |
 | GET | `/users/{user_id}` | `ieBaselineApi.users.get` | User Management | Load one full user profile |
 | POST | `/users/create` | `ieBaselineApi.users.create` | User Management | Create a `user_master` row |
@@ -404,9 +403,10 @@ Actions and triggers:
 | DELETE | `/users/{user_id}` | `ieBaselineApi.users.remove` | User Management | Delete a `user_master` row |
 | GET | `/users/{user_id}/delete-preview` | `ieBaselineApi.users.deletePreview` | User Management | Preview related records before delete |
 | GET | `/roles` | `ieBaselineApi.roles.list` | User Management | Load role dropdown options |
-| GET | `/modules` | `ieBaselineApi.modules.list` | Assign modules | Load modules available for assignment |
-| GET | `/users/{user_id}/modules` | `ieBaselineApi.users.modules.get` | Assign modules | Load selected user's module IDs |
-| PUT | `/users/{user_id}/modules` | `ieBaselineApi.users.modules.update` | Assign modules | Replace selected user's module assignments |
+| GET | `/modules` | `ieBaselineApi.modules.list` | Modules Assignment | Load modules available for assignment |
+| GET | `/users/{user_id}/modules` | `ieBaselineApi.users.modules.get` | Available wrapper | Load one selected user module ID set |
+| PUT | `/users/{user_id}/modules` | `ieBaselineApi.users.modules.update` | Available wrapper | Replace one selected user module assignment set |
+| POST | `/users/modules/bulk-add` | `ieBaselineApi.users.modules.bulkAdd` | Modules Assignment | Bulk add selected modules to selected users |
 | POST | `/modules/{module_id}/attempts/start` | `ieBaselineApi.modules.attempts.start` | Exam modal | Start or resume an attempt |
 | GET | `/modules/{module_id}/attempts?user_id=...` | `ieBaselineApi.modules.attempts.list` | Exam modal, final results | Load attempt history |
 | GET | `/attempts/{attempt_id}` | `ieBaselineApi.attempts.get` | Available wrapper, no current call site | Load one attempt |
@@ -466,13 +466,13 @@ Previous attempts
   -> GET /attempts?user_id=:userId
   -> selected row opens /iebaseline/attempts/:attemptId/results
 
-Assign modules
+Modules Assignment
   -> useIEBaselineCurrentUser for assignee_id
   -> GET /users
   -> GET /modules
-  -> GET /users/:userId/modules
-  -> PUT /users/:userId/modules
-  -> invalidate related IE Baseline queries
+  -> filter and select users/modules locally
+  -> POST /users/modules/bulk-add
+  -> invalidate user, module, and home queries
 
 User Management
   -> GET /roles

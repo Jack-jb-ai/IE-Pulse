@@ -153,6 +153,7 @@ export interface IEBaselineModule {
   description: string | null;
   owner_name: string | null;
   question_count?: number | null;
+  module_type?: string | null;
 }
 
 export interface IEBaselineModuleQuestion {
@@ -187,6 +188,19 @@ export interface IEBaselineUpdateUserModulesResponse {
   added_module_ids: number[];
   removed_module_ids: number[];
   unchanged_module_ids: number[];
+}
+
+export interface IEBaselineBulkAddUserModulesRequest {
+  user_ids: number[];
+  module_ids: number[];
+  assignee_id: number;
+}
+
+export interface IEBaselineBulkAddUserModulesResponse {
+  user_ids: number[];
+  module_ids: number[];
+  inserted_count: number;
+  unchanged_count: number;
 }
 
 export type IEBaselineExamAttemptStatus = 'Not Started' | 'In Progress' | 'Submitted' | 'Rejected' | 'Completed' | 'Abandoned';
@@ -552,6 +566,12 @@ export const ieBaselineApi = {
           withCurrentUser(`/users/${encodeURIComponent(String(userId))}/modules`, currentUserId),
           payload,
       ),
+      bulkAdd: (payload: IEBaselineBulkAddUserModulesRequest, currentUserId: number) =>
+        sendJson<IEBaselineBulkAddUserModulesResponse, IEBaselineBulkAddUserModulesRequest>(
+          'POST',
+          withCurrentUser('/users/modules/bulk-add', currentUserId),
+          payload,
+        ),
     },
     systemModules: {
       get: (userId: number) =>

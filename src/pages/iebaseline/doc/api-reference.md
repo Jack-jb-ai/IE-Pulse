@@ -1091,6 +1091,7 @@ Status: `200 OK`
     "description": "Billing controls",
     "approval_required": true,
     "approvalRequired": true,
+    "module_type": "Global",
     "owner_name": "Finance",
     "question_count": 12
   }
@@ -1106,10 +1107,111 @@ Status: `200 OK`
 | `description` | Module description, or `null` |
 | `approval_required` | Stored module approval flag |
 | `approvalRequired` | Camel-case alias for frontend approval routing |
+| `module_type` | Optional module grouping from `module_master.module_type`, such as `Site`, `Global`, or `Others`; may be `null` |
 | `owner_name` | Module owner, or `null` |
 | `question_count` | Number of checklist questions for this module |
 
 ### Error Response
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## POST /api/iebaseline/users/modules/bulk-add
+
+Adds selected IE Baseline modules to selected users without removing any
+existing assignments. This is additive only; use
+`PUT /api/iebaseline/users/{user_id}/modules` for full replacement of one
+user's assignment set.
+
+Authorization: requires `current_user_id` with access to `/iebaseline/assign`.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | Main application authentication; resolved IE Baseline actor query required |
+| Query parameter | `current_user_id`, required integer |
+| Request body | JSON object |
+
+### Example Request
+
+```http
+POST /api/iebaseline/users/modules/bulk-add?current_user_id=5
+Content-Type: application/json
+```
+
+```json
+{
+  "user_ids": [1, 2],
+  "module_ids": [3, 7],
+  "assignee_id": 5
+}
+```
+
+### Request Fields
+
+| Field | Description |
+| --- | --- |
+| `user_ids` | User IDs that should receive the selected modules. Duplicate IDs are allowed and are deduplicated by the API. An empty array is valid and creates no assignment rows. |
+| `module_ids` | Module IDs to add to each selected user. Duplicate IDs are allowed and are deduplicated by the API. An empty array is valid and creates no assignment rows. |
+| `assignee_id` | User who assigned or manages the checklist. Must exist in `user_master`. |
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_ids": [1, 2],
+  "module_ids": [3, 7],
+  "inserted_count": 3,
+  "unchanged_count": 1
+}
+```
+
+### Backend Behavior
+
+* Validate that every `user_id` exists in `user_master`.
+* Validate that `assignee_id` exists in `user_master`.
+* Validate that every `module_id` exists in `module_master`.
+* Deduplicate `user_ids` and `module_ids`; response arrays are sorted ascending.
+* Insert missing `user_checklist_status` rows with default `Not Started`.
+* Preserve existing assignment rows, including current status and progress.
+* Do not update existing assignment rows, including `status`, `assignee_id`, attempts, answers, and progress.
+* Do not delete assignments that are not included in the request.
+* Return inserted and unchanged counts across all user/module pairs.
+* If `user_ids` or `module_ids` is empty, return `inserted_count: 0` and `unchanged_count: 0`.
+
+### Error Responses
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid user_ids"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid module_ids"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid assignee_id"
+}
+```
 
 Status: `500 Internal Server Error`
 

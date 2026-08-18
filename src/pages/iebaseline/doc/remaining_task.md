@@ -9,7 +9,6 @@
 
 # Approval module
   - notification template, include HTML, buttons, links etc etc make it a little fancy
-  - Add delegate to action for Approvals
 
 # Future modules (v2)
 # Module Management (Admin)

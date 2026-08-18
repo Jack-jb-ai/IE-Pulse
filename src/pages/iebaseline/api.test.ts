@@ -63,6 +63,41 @@ describe('IE Baseline API protected actor params', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/ietools/iebaseline/api/users/12/modules?current_user_id=7');
   });
 
+  it('loads modules with module_type from the API response', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse([
+      {
+        module_id: 3,
+        module_name: 'Order to Cash',
+        description: null,
+        owner_name: null,
+        question_count: 12,
+        module_type: 'Global',
+      },
+    ]) as Response);
+
+    const modules = await ieBaselineApi.modules.list(7);
+
+    expect(modules[0].module_type).toBe('Global');
+  });
+
+  it('posts bulk module assignment requests with the protected actor param', async () => {
+    await ieBaselineApi.users.modules.bulkAdd({
+      user_ids: [1, 2],
+      module_ids: [3, 4],
+      assignee_id: 7,
+    }, 7);
+
+    const fetchMock = vi.mocked(fetch);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/ietools/iebaseline/api/users/modules/bulk-add?current_user_id=7');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      user_ids: [1, 2],
+      module_ids: [3, 4],
+      assignee_id: 7,
+    });
+  });
+
   it('adds current_user_id to learner attempt question and submit URLs', async () => {
     await ieBaselineApi.attempts.questions.get(101, 7);
     await ieBaselineApi.attempts.questions.saveAnswer(101, 202, { selectedAnswer: 'Yes' }, 7);
