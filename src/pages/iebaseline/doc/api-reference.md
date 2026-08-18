@@ -13,10 +13,12 @@ details to IE Baseline, where users are identified by unique email address.
 Flow:
 
 1. Frontend calls `POST /api/iebaseline/users/resolve-current` with the current
-   user's email and profile fields.
-2. If the user exists, the backend returns the existing `user_id`.
-3. If the backend returns `404 User not found`, the frontend may create the user
-   through `POST /api/iebaseline/users/create` with minimum role permission.
+   user's email, profile fields, optional `wd_id`, and optional manager payload.
+2. The backend resolves by normalized email. If the user exists, it returns the
+   existing `user_id`; if missing, it creates the `user_master` row with default
+   role `1`.
+3. The frontend may call `POST /api/iebaseline/users/{user_id}/sync-manager` in
+   the background to link the current user to the first manager supplied by AD.
 4. Subsequent APIs pass the resolved `user_id`, `uploadedBy`,
    `approver_user_id`, `reviewerUserId`, or `current_user_id` as required by
    each endpoint.
@@ -181,6 +183,9 @@ Rules:
 * If stored status is `Not Started`, return `progress = 0`.
 * If stored status is `In Progress`, `Submitted`, `Rejected`, or `Completed`,
   calculate progress from the latest attempt.
+* Approved approval-required modules no longer have an active assignment row,
+  so they disappear from this assignment list. Attempt history and result detail
+  endpoints continue to return the approved attempt.
 * `answered_questions` must count rows in `user_exam_answer` for the latest
   attempt where `is_answered = true`.
 * `total_questions` must count checklist questions in `baseline_checklist` for
@@ -268,8 +273,8 @@ Status: `500 Internal Server Error`
 
 ## POST /api/iebaseline/users/resolve-current
 
-Resolves the signed-in AD user to an existing `user_master` row for IE Baseline
-learner workflows. The operation is idempotent: repeated calls for the same
+Resolves the signed-in AD user to a `user_master` row for IE Baseline learner
+workflows. The operation is idempotent: repeated calls for the same normalized
 email return the same `user_id`.
 
 IE Baseline RBAC is not required for this bootstrap endpoint. The frontend
@@ -296,7 +301,13 @@ Content-Type: application/json
   "name": "Jack Goh",
   "email": "Jack_Goh@jabil.com",
   "position": "IE Engineer II",
-  "department": "Industrial Engineering"
+  "department": "Industrial Engineering",
+  "wd_id": 4389269,
+  "manager": {
+    "name": "Badrolhisham Bahari",
+    "email": "BadrolHisham_Bahari@Jabil.com",
+    "position": "IE Section Manager"
+  }
 }
 ```
 
@@ -309,26 +320,29 @@ Status: `200 OK`
   "user_id": 42,
   "name": "Jack Goh",
   "position": "IE Engineer II",
-  "wd_id": null,
-  "email": "Jack_Goh@jabil.com",
+  "wd_id": 4389269,
+  "email": "jack_goh@jabil.com",
   "department": "Industrial Engineering",
   "role_id": 1,
   "reports_to": null,
-  "created": false
+  "created": true
 }
 ```
 
 ### Backend Behavior
 
 * Validate that `email` is present and non-empty.
-* Look up `user_master` by `email`.
+* Normalize email with trim and lowercase before lookup.
 * If the user exists, return the existing `user_id` with `created = false` and
-  update only AD-sourced profile fields: `name`, `position`, `department`, and
-  `updated_at`.
-* Preserve existing `role_id`, `reports_to`, `wd_id`, and `email` for returning
-  users.
-* If the user does not exist, return `404 User not found`. New user creation is
-  handled by `POST /api/iebaseline/users/create`.
+  patch useful AD-sourced profile fields: `name`, `position`, `department`,
+  `wd_id`, and `updated_at`.
+* Preserve manually managed fields such as `role_id` and existing non-null
+  `reports_to` for returning users.
+* Do not overwrite useful stored values with null or empty current-user values.
+* If the user does not exist, create a `user_master` row with default
+  `role_id = 1`, `reports_to = null`, and `created = true`.
+* Accept the optional `manager` payload for frontend compatibility, but do not
+  link the manager in this endpoint.
 
 ### Error Responses
 
@@ -337,6 +351,91 @@ Status: `400 Bad Request`
 ```json
 {
   "detail": "Email is required"
+}
+```
+
+Status: `409 Conflict`
+
+```json
+{
+  "detail": "wd_id already exists"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
+## POST /api/iebaseline/users/{user_id}/sync-manager
+
+Best-effort background endpoint that links a resolved current user to the first
+manager supplied by AD user info. This endpoint is separate from
+`resolve-current` so manager lookup and creation do not delay Home page entry.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | Main application authentication; no IE Baseline RBAC required |
+| Path parameter | `user_id`, required integer |
+| Request body | JSON object with `manager` |
+
+### Example Request
+
+```http
+POST /api/iebaseline/users/42/sync-manager
+Content-Type: application/json
+```
+
+```json
+{
+  "manager": {
+    "name": "Badrolhisham Bahari",
+    "email": "BadrolHisham_Bahari@Jabil.com",
+    "position": "IE Section Manager"
+  }
+}
+```
+
+### Success Response
+
+Status: `200 OK`
+
+```json
+{
+  "user_id": 42,
+  "reports_to": 7,
+  "manager_user_id": 7,
+  "manager_created": false,
+  "updated": true
+}
+```
+
+If the current user already has `reports_to`, the endpoint returns a no-op
+response with `updated = false`.
+
+### Backend Behavior
+
+* Validate that `user_id` exists.
+* Validate that `manager.email` is present and has a basic email shape.
+* If the current user's `reports_to` is already non-null, do not overwrite it.
+* Find the manager by normalized email.
+* If missing, create a partial manager user with `name`, normalized `email`,
+  `position`, `department = null`, `wd_id = null`, `reports_to = null`, and
+  `role_id = 1`.
+* Update the current user's `reports_to` only when it is still null.
+
+### Error Responses
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Invalid manager email"
 }
 ```
 
@@ -1422,22 +1521,24 @@ POST /api/iebaseline/modules/3/attempts/start?user_id=1
   `ON CONFLICT (attempt_id, question_id) DO NOTHING`.
 * Shell values are `selected_answer = NULL`, `is_answered = FALSE`,
   `is_attached = FALSE`, scoring fields null, and timestamps set.
-* The `Start Module` action after assignment is the attempt creation boundary.
-  Do not wait for the first saved answer before inserting `user_exam_attempt`
-  or answer shells.
-* Do not reuse `Completed` or `Submitted` attempts for editable starts or
-  new attempts. Those attempts remain available for read-only review through attempt
-  history and attempt questions.
+* The start action is the attempt creation boundary. Do not wait for the first
+  saved answer before inserting `user_exam_attempt` or answer shells.
+* Do not reuse `Completed` or `Submitted` attempts for editable starts. Those
+  attempts remain available for read-only review through attempt history and
+  attempt questions.
+* Do not use start to continue a rejected attempt. A rejected continue flow
+  should select the latest rejected `attemptId` from attempt history, then use
+  the attempt-scoped question, answer, attachment, and submit endpoints for that
+  same attempt.
 * Require an active `user_checklist_status` row for the learner and module before
   creating or resuming an editable attempt.
 * Reject editable starts while a submitted attempt for the same learner/module
   is still waiting for approval with result status `PENDING` or `IN_PROGRESS`.
-* After an attempt is `REJECTED`, keep the assignment active and allow the
-  learner to continue the latest rejected attempt by `attempt_id`; do not create
-  a fresh attempt for **Continue Module**.
-* After an attempt is `APPROVED`, the assignment remains active with status
-  `Completed`; starts are only allowed again if a later workflow explicitly
-  reassigns or reopens it.
+* After an attempt is `REJECTED`, keep the assignment active with status
+  `Rejected` and allow the learner to edit and resubmit the same attempt.
+* After an attempt is `APPROVED`, delete the active assignment row for that
+  learner/module. Starts are only allowed again if a later workflow explicitly
+  reassigns the module.
 
 ### Success Response
 
@@ -1624,9 +1725,7 @@ whitespace-only values are treated as not answered.
 * Validate that the attempt exists and is still editable.
 * Learner editability is determined from `user_checklist_status.status`, not
   from `user_exam_attempt.result_status`.
-* Assignments with status `In Progress` may be saved by the learner.
-* Assignments with status `Rejected` may also be saved by the learner when the
-  request targets the latest rejected attempt for that learner/module.
+* Only assignments with status `In Progress` may be saved by the learner.
   `result_status = IN_PROGRESS` means an approver is actively reviewing and
   must not unlock learner editing.
 * Validate that the question belongs to the attempt's module.
@@ -1694,10 +1793,10 @@ Status: `200 OK`
 
 ## DELETE /api/iebaseline/attempts/{attempt_id}/questions/{question_id}/answer
 
-Clears one saved answer for an in-progress attempt.
+Clears one saved answer for an editable attempt.
 
 Learner editability follows the same rule as save: the active assignment must
-have `user_checklist_status.status = 'In Progress'`. Do not treat
+have `user_checklist_status.status = 'In Progress'` or `Rejected`. Do not treat
 `user_exam_attempt.result_status = 'IN_PROGRESS'` as learner-editable; that
 state belongs to approver review.
 
@@ -1778,9 +1877,10 @@ POST /api/iebaseline/attempts/15/submit?current_user_id=1
 
 * Validate that `current_user_id` has access to `/iebaseline/module/:moduleId`.
 * Validate that `current_user_id` owns the attempt.
-* Reject attempts whose active assignment status is no longer `In Progress`.
-  `user_exam_attempt.result_status = IN_PROGRESS` is reviewer review state and
-  must not make a submitted attempt learner-editable.
+* Reject attempts whose active assignment status is neither `In Progress` nor
+  `Rejected`. `Rejected` means the learner may correct and resubmit the same
+  attempt. `user_exam_attempt.result_status = IN_PROGRESS` is reviewer review
+  state and must not make a submitted attempt learner-editable.
 * Reject unanswered shells before required attachment validation.
 
 ### Success Response
@@ -1890,7 +1990,7 @@ the scored answer fields for review:
 The backend should:
 
 * Validate attempt ownership/editability. Learner editability comes from
-  `user_checklist_status.status = 'In Progress'`, not from
+  `user_checklist_status.status IN ('In Progress', 'Rejected')`, not from
   `user_exam_attempt.result_status`.
 * Validate that all answer shells for the attempt have `is_answered = true`.
   Reject before scoring when any shell is still false.
@@ -1900,7 +2000,10 @@ The backend should:
   as `NA - No machine needed for this product`.
 * Calculate scores in one transaction only when module approval is not required.
 * If module approval is required, create one `approval_request` for the attempt
-  and leave score fields hidden until final decision.
+  and leave score fields hidden until final decision. If the same attempt was
+  previously rejected, reuse its existing approval request by setting it back to
+  `PENDING`, updating the assigned approver, and clearing prior remarks and
+  completion timestamp.
 * Assign the approval request to `module_master.owner_user_id`; if the owner is
   null, fallback to `user_checklist_status.assignee_id`.
 * Load answer options from the module's configured `scoring_metric_id`.
@@ -1919,10 +2022,11 @@ The backend should:
 * For non-approval modules, set `user_checklist_status.status` to `Completed`
   on submit.
 * For approval-required modules, set `user_checklist_status.status` to
-  `Submitted` on submit, then to `Completed` or `Rejected` on reviewer decision.
-  Keep the assignment active after `REJECTED` so the learner can retry.
-* Assignment status updates must not delete `user_exam_attempt`,
-  `user_exam_answer`, approval request, or attachment history.
+  `Submitted` on submit. On reviewer decision, delete the active assignment row
+  after `APPROVED`, or set it to `Rejected` after `REJECTED` so the learner can
+  retry by editing and resubmitting the same attempt.
+* Assignment cleanup must not delete `user_exam_attempt`, `user_exam_answer`,
+  approval request, or attachment history.
 * For approval-required modules, set `resultStatus` to `PENDING` on submit and
   to `APPROVED` or `REJECTED` on decision.
 
@@ -1935,14 +2039,14 @@ The backend should expect this request sequence from the current frontend:
   question before advancing.
 * Clicking **Finish Checklist** sends one save request for the final question,
   then sends this submit request.
-* Clicking **Continue Module** for a rejected assignment loads the latest
-  rejected attempt with `GET /attempts/{attempt_id}/questions`, prefills saved
-  answers, and saves/submits changes against the same `attempt_id`.
 * If submit returns `UNANSWERED_QUESTIONS`, navigate back to the returned
   unanswered question instead of treating the attempt as complete.
 * Closing the modal or browser does not save unsaved local selection changes.
-* Reopening the module resumes from the latest saved `In Progress` attempt and
-  saved `user_exam_answer` rows.
+* Reopening an unfinished module resumes from the latest saved `In Progress`
+  attempt and saved `user_exam_answer` rows.
+* Continuing a rejected module opens the latest rejected attempt and reuses its
+  saved `user_exam_answer` rows so prior rejected answers are prefilled and can
+  be corrected in place.
 
 ### Final Results Page Contract
 
@@ -2359,7 +2463,9 @@ The response shape is the same as learner answer save.
 
 Completes the approval. The backend recalculates score from the current
 authoritative answers, updates the attempt result status, stores reviewer
-remarks, and releases the final score.
+remarks, releases the final score, and updates active assignment access. An
+approved decision deletes the matching `user_checklist_status` row for the
+learner/module; a rejected decision keeps the row active with status `Rejected`.
 
 ### Request
 

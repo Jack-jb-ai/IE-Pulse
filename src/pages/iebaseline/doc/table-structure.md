@@ -69,7 +69,7 @@ Allowed values:
 | `In Progress` | The user has started or resumed an editable attempt. |
 | `Submitted` | The learner submitted an approval-required attempt for review. |
 | `Rejected` | The latest approval decision rejected the attempt and the learner can retry. |
-| `Completed` | The module assignment workflow is complete. |
+| `Completed` | The module assignment workflow is complete for non-approval modules. Approved approval-required modules remove the active assignment row instead. |
 
 The default status for a newly created checklist assignment is `Not Started`.
 
@@ -131,6 +131,8 @@ CREATE TABLE user_master (
 * `reports_to` points back to another `user_master.user_id`; deleting the manager sets this value to null.
 * `role_id` points to `role_master.role_id` and defaults to the seeded user role `1`.
 * `email` is unique when present, preventing duplicate email addresses.
+* Runtime current-user resolution matches email case-insensitively after trimming, even though the database constraint is on the stored email value.
+* Users created from manager-chain sync may be partial: `department`, `wd_id`, and `reports_to` can be null until that person signs in and `resolve-current` patches their full AD profile.
 
 ---
 
@@ -1083,6 +1085,9 @@ CREATE TABLE user_exam_attempt (
 * Approval-related result states are stored in `result_status`.
 * Assignment workflow states are stored in `user_checklist_status.status`, not
   on the attempt row.
+* Approved approval-required attempts intentionally remove the active
+  `user_checklist_status` row. Historical attempts, answers, approval requests,
+  and attachments remain in their own tables.
 * Learner editability is controlled by `user_checklist_status.status =
   'In Progress'`. `user_exam_attempt.result_status = 'IN_PROGRESS'` means an
   approver is reviewing and must not allow learner save, clear, or submit.
@@ -1784,11 +1789,11 @@ WHERE attempt.attempt_id = $1
   AND assignment.module_id = attempt.module_id;
 ```
 
-For approval-required modules, set assignment status to `Submitted` on submit,
-then set it to `Completed` or `Rejected` at approval decision time. `Rejected`
-assignments remain active so the learner can retry. Assignment status updates
-must not delete `user_exam_attempt`, `user_exam_answer`, approval requests, or
-attachments.
+For approval-required modules, set assignment status to `Submitted` on submit.
+At approval decision time, delete the active assignment row after `APPROVED`, or
+set the assignment to `Rejected` after `REJECTED` so the learner can retry.
+Assignment cleanup must not delete `user_exam_attempt`, `user_exam_answer`,
+approval requests, or attachments.
 
 ---
 
@@ -1977,6 +1982,8 @@ Authentication should determine the current user.
 * Do not allow answers to be changed after completion unless the business rules explicitly support reopening attempts.
 * Prevent multiple simultaneous `In Progress` attempts for the same user and module at the application layer.
 * Consider adding a partial unique index later if the database must enforce one active attempt.
+* Use the highest `user_exam_attempt.attempt_id` to select the latest attempt for home progress.
+* Calculate home progress from that latest attempt's `is_answered = true` answer rows, not from answer shell existence.
 * Use `attempt_id` as the main key for loading, saving, submitting, and resuming an exam.
 * Use `question_id` to reference `baseline_checklist.id`.
 * Use `module_id` for reporting and to validate question-module consistency.
