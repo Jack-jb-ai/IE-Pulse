@@ -26,6 +26,12 @@ describe('IE Baseline API protected actor params', () => {
     expect(fetchUrl()).toBe('/ietools/iebaseline/api/users/search?current_user_id=7&q=ada&limit=25&exclude_user_id=12');
   });
 
+  it('adds role_id to user search when filtering by role', async () => {
+    await ieBaselineApi.users.search('  admin  ', { limit: 25, roleId: 2 }, 7);
+
+    expect(fetchUrl()).toBe('/ietools/iebaseline/api/users/search?current_user_id=7&q=admin&limit=25&role_id=2');
+  });
+
   it('adds current_user_id to user update URLs and keeps the JSON body', async () => {
     await ieBaselineApi.users.update(
       12,
@@ -77,6 +83,19 @@ describe('IE Baseline API protected actor params', () => {
     const fetchMock = vi.mocked(fetch);
     expect(fetchMock.mock.calls[0][0]).toBe('/ietools/iebaseline/api/attempts?user_id=7');
     expect(fetchMock.mock.calls[1][0]).toBe('/ietools/iebaseline/api/attempts?user_id=7&module_id=3');
+  });
+
+  it('posts approval delegation request details', async () => {
+    await ieBaselineApi.approvals.delegate(15, 7, 2);
+
+    const fetchMock = vi.mocked(fetch);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/ietools/iebaseline/api/approvals/15/delegate');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      reviewerUserId: 7,
+      delegateToUserId: 2,
+    });
   });
 
   it('sends wd_id and manager details when resolving the current user', async () => {

@@ -1,21 +1,26 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, ChevronRight, ClipboardCheck, Eye, Inbox, Loader2, Send } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, ChevronRight, ClipboardCheck, Eye, Inbox, Loader2, Send, UserPlus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
 import {
   ieBaselineApi,
   type IEBaselineApprovalListItem,
   type IEBaselineApprovalStatus,
+  type IEBaselineUserProfile,
 } from './api';
 import { useIEBaselineRouteAccess } from './access';
+import { canDelegateApproval } from './approvalUtils';
 import ExamModal from './components/ExamModal';
+import UserSearchCombobox from './components/UserSearchCombobox';
 import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 
 export type ApprovalTab = 'my-submissions' | 'inbox';
@@ -140,6 +145,7 @@ export default function Approvals({ defaultTab = 'my-submissions' }: ApprovalsPr
               error={submissionsQuery.error}
               emptyLabel="No submitted approvals yet."
               mode="submissions"
+              currentUserId={ieBaselineUserId}
             />
           </TabsContent>
         )}
@@ -154,6 +160,7 @@ export default function Approvals({ defaultTab = 'my-submissions' }: ApprovalsPr
               error={inboxQuery.error}
               emptyLabel="No approval requests match this filter."
               mode="inbox"
+              currentUserId={ieBaselineUserId}
               rightSlot={
                 <Select value={inboxFilter} onValueChange={(value) => setInboxFilter(value as InboxFilter)}>
                   <SelectTrigger className="w-full sm:w-[210px]">
@@ -225,6 +232,7 @@ function ApprovalList({
   error,
   emptyLabel,
   mode,
+  currentUserId,
   rightSlot,
 }: {
   title: string;
@@ -234,6 +242,7 @@ function ApprovalList({
   error: unknown;
   emptyLabel: string;
   mode: 'submissions' | 'inbox';
+  currentUserId: number | null;
   rightSlot?: ReactNode;
 }) {
   return (
@@ -269,7 +278,7 @@ function ApprovalList({
       {!isLoading && !error && approvals.length > 0 && (
         <div className="divide-y divide-border/60">
           {approvals.map((approval) => (
-            <ApprovalRow key={approval.approvalId} approval={approval} mode={mode} />
+            <ApprovalRow key={approval.approvalId} approval={approval} mode={mode} currentUserId={currentUserId} />
           ))}
         </div>
       )}
@@ -277,8 +286,17 @@ function ApprovalList({
   );
 }
 
-function ApprovalRow({ approval, mode }: { approval: IEBaselineApprovalListItem; mode: 'submissions' | 'inbox' }) {
+function ApprovalRow({
+  approval,
+  mode,
+  currentUserId,
+}: {
+  approval: IEBaselineApprovalListItem;
+  mode: 'submissions' | 'inbox';
+  currentUserId: number | null;
+}) {
   const canReview = mode === 'inbox';
+  const canDelegate = canDelegateApproval(approval, mode);
 
   return (
     <div className="grid gap-4 p-5 lg:grid-cols-[1.4fr_1fr_auto] lg:items-center">
@@ -300,7 +318,8 @@ function ApprovalRow({ approval, mode }: { approval: IEBaselineApprovalListItem;
         {approval.remarks && <span className="line-clamp-1">Remarks: {approval.remarks}</span>}
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        {canDelegate && <DelegateApprovalDialog approval={approval} currentUserId={currentUserId} />}
         {canReview ? (
           <Button asChild className="gap-2">
             <Link to={`/iebaseline/approvals/${approval.approvalId}/review`}>
@@ -318,6 +337,87 @@ function ApprovalRow({ approval, mode }: { approval: IEBaselineApprovalListItem;
         )}
       </div>
     </div>
+  );
+}
+
+function DelegateApprovalDialog({
+  approval,
+  currentUserId,
+}: {
+  approval: IEBaselineApprovalListItem;
+  currentUserId: number | null;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [selectedAdmin, setSelectedAdmin] = useState<IEBaselineUserProfile | null>(null);
+  const delegateMutation = useMutation({
+    mutationFn: () => {
+      if (!currentUserId) throw new Error('Current IE Baseline user is not resolved yet.');
+      if (!selectedAdmin) throw new Error('Select an admin before delegating this approval.');
+      return ieBaselineApi.approvals.delegate(approval.approvalId, currentUserId, selectedAdmin.user_id);
+    },
+    onSuccess: async () => {
+      const adminName = selectedAdmin?.name ?? 'the selected admin';
+      setOpen(false);
+      setSelectedAdmin(null);
+      toast({
+        title: 'Approval delegated',
+        description: `Approval #${approval.approvalId} was assigned to ${adminName}.`,
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ['iebaseline', 'approvals'] });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Unable to delegate approval',
+        description: error instanceof Error ? error.message : 'Please check the approval status and try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+  const isSaving = delegateMutation.isPending;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen && !isSaving) setSelectedAdmin(null);
+      }}
+    >
+      <Button type="button" variant="outline" className="gap-2" onClick={() => setOpen(true)}>
+        <UserPlus className="h-4 w-4" />
+        Delegate
+      </Button>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delegate approval</DialogTitle>
+          <DialogDescription>
+            Reassign this approval to another admin reviewer.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <UserSearchCombobox
+            value={selectedAdmin}
+            placeholder="Search admin by name, WD ID, or email"
+            currentUserId={currentUserId}
+            roleId={2}
+            excludeUserId={currentUserId}
+            allowClear
+            onChange={setSelectedAdmin}
+          />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={isSaving} onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={!selectedAdmin || !currentUserId || isSaving} onClick={() => delegateMutation.mutate()}>
+            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Delegate
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -342,6 +342,10 @@ export interface IEBaselineApprovalDecisionResponse {
   progress: IEBaselineAttemptProgress;
 }
 
+export interface IEBaselineApprovalDelegateResponse {
+  approval: IEBaselineApproval;
+}
+
 export interface IEBaselineValidationQuestion {
   question_id: number;
   question_num?: number | string | null;
@@ -493,7 +497,7 @@ export const ieBaselineApi = {
   users: {
     list: (currentUserId: number) =>
       get<IEBaselineUser[]>(withCurrentUser('/users', currentUserId)),
-    search: (query: string | undefined, options: { limit?: number; excludeUserId?: number | null } | undefined, currentUserId: number) => {
+    search: (query: string | undefined, options: { limit?: number; excludeUserId?: number | null; roleId?: number | null } | undefined, currentUserId: number) => {
       const params: Record<string, string | number | null | undefined> = {
         current_user_id: currentUserId,
       };
@@ -501,6 +505,7 @@ export const ieBaselineApi = {
       if (trimmed) params.q = trimmed;
       if (options?.limit) params.limit = options.limit;
       if (options?.excludeUserId) params.exclude_user_id = options.excludeUserId;
+      if (options?.roleId) params.role_id = options.roleId;
       return get<IEBaselineUserProfile[]>(appendQuery('/users/search', params));
     },
     get: (userId: number, currentUserId: number) =>
@@ -680,6 +685,12 @@ export const ieBaselineApi = {
           decision,
           ...(remarks !== undefined ? { remarks } : {}),
         },
+      ),
+    delegate: (approvalId: number, reviewerUserId: number, delegateToUserId: number) =>
+      sendJson<IEBaselineApprovalDelegateResponse, { reviewerUserId: number; delegateToUserId: number }>(
+        'POST',
+        `/approvals/${encodeURIComponent(String(approvalId))}/delegate`,
+        { reviewerUserId, delegateToUserId },
       ),
   },
 };

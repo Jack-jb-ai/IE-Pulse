@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getVisibleIEBaselineApprovalTabs } from './Approvals';
+import { canDelegateApproval } from './approvalUtils';
 
 describe('IE Baseline approval tab visibility', () => {
   it('returns only my-submissions when inbox is denied', () => {
@@ -24,5 +25,19 @@ describe('IE Baseline approval tab visibility', () => {
     );
 
     expect(visibleTabs).toEqual(['my-submissions', 'inbox']);
+  });
+});
+
+describe('IE Baseline approval delegation visibility', () => {
+  it('shows delegation for actionable inbox approvals', () => {
+    expect(canDelegateApproval({ status: 'PENDING' }, 'inbox')).toBe(true);
+    expect(canDelegateApproval({ status: 'IN_PROGRESS' }, 'inbox')).toBe(true);
+  });
+
+  it('hides delegation outside actionable inbox approvals', () => {
+    expect(canDelegateApproval({ status: 'APPROVED' }, 'inbox')).toBe(false);
+    expect(canDelegateApproval({ status: 'REJECTED' }, 'inbox')).toBe(false);
+    expect(canDelegateApproval({ status: 'CANCELLED' }, 'inbox')).toBe(false);
+    expect(canDelegateApproval({ status: 'PENDING' }, 'submissions')).toBe(false);
   });
 });
