@@ -11,9 +11,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Sheet,
@@ -24,11 +26,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { toast } from '@/components/ui/use-toast';
+import { cn } from '@/lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, CheckSquare, Loader2, Pencil, RotateCcw, Save, Search, UserCheck, Users } from 'lucide-react';
+import { BookOpen, CalendarIcon, CheckSquare, Loader2, Pencil, RotateCcw, Save, Search, UserCheck, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ieBaselineApi,
+  type IEBaselineAssignmentDeadline,
   type IEBaselineBulkAddUserModulesResponse,
   type IEBaselineModule,
   type IEBaselineUser,
@@ -38,6 +42,12 @@ import { useIEBaselineCurrentUser } from './useIEBaselineCurrentUser';
 export const USER_PAGE_SIZE = 15;
 export const MODULE_TYPE_ALL = 'all';
 export const MODULE_TYPE_UNSPECIFIED = 'Unspecified';
+
+export interface ModuleTypeDeadlineGroup {
+  moduleType: string;
+  moduleCount: number;
+  deadlineDate: string;
+}
 
 export function filterAssignableUsers(users: IEBaselineUser[], search: string) {
   const query = normalizeSearch(search);
@@ -95,6 +105,89 @@ export function filterAssignableModules(modules: IEBaselineModule[], search: str
   });
 }
 
+export function toYmd(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function parseYmd(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : undefined;
+}
+
+export function formatDateForDisplay(value: string) {
+  const date = parseYmd(value);
+  if (!date) return '';
+
+  return date.toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+export function getTodayYmd() {
+  return toYmd(new Date());
+}
+
+export function getSelectedModuleTypeDeadlineGroups(
+  modules: IEBaselineModule[],
+  selectedModuleIds: Set<number>,
+  deadlineByType: Record<string, string> = {},
+): ModuleTypeDeadlineGroup[] {
+  const groups = new Map<string, number>();
+
+  modules.forEach((module) => {
+    if (!selectedModuleIds.has(module.module_id)) return;
+
+    const moduleType = getModuleTypeLabel(module);
+    groups.set(moduleType, (groups.get(moduleType) ?? 0) + 1);
+  });
+
+  return Array.from(groups.entries())
+    .map(([moduleType, moduleCount]) => ({
+      moduleType,
+      moduleCount,
+      deadlineDate: deadlineByType[moduleType] ?? '',
+    }))
+    .sort((a, b) => a.moduleType.localeCompare(b.moduleType));
+}
+
+export function reconcileDeadlineByType(
+  currentDeadlineByType: Record<string, string>,
+  groups: ModuleTypeDeadlineGroup[],
+) {
+  return groups.reduce<Record<string, string>>((next, group) => {
+    next[group.moduleType] = currentDeadlineByType[group.moduleType] ?? group.deadlineDate;
+    return next;
+  }, {});
+}
+
+export function areDeadlineMapsEqual(left: Record<string, string>, right: Record<string, string>) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) => left[key] === right[key]);
+}
+
+export function getDeadlineValidationMessage(groups: ModuleTypeDeadlineGroup[], todayYmd: string = getTodayYmd()) {
+  if (groups.some((group) => !group.deadlineDate)) return 'Select a deadline for every selected module type.';
+  if (groups.some((group) => group.deadlineDate < todayYmd)) return 'Deadline dates cannot be earlier than today.';
+  return null;
+}
+
+export function toAssignmentDeadlines(groups: ModuleTypeDeadlineGroup[]): IEBaselineAssignmentDeadline[] {
+  return groups.map((group) => ({
+    module_type: group.moduleType,
+    deadline_date: group.deadlineDate,
+  }));
+}
+
 export function getModuleAssignmentChanges(draftModuleIds: Set<number>, originalModuleIds: Set<number>) {
   const draftIds = Array.from(draftModuleIds);
   const originalIds = Array.from(originalModuleIds);
@@ -114,6 +207,7 @@ export default function AssignModules() {
   const queryClient = useQueryClient();
   const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
   const [selectedModuleIds, setSelectedModuleIds] = useState<Set<number>>(new Set());
+  const [deadlineByType, setDeadlineByType] = useState<Record<string, string>>({});
   const [userSearch, setUserSearch] = useState('');
   const [moduleSearch, setModuleSearch] = useState('');
   const [moduleType, setModuleType] = useState(MODULE_TYPE_ALL);
@@ -149,8 +243,14 @@ export default function AssignModules() {
   );
   const moduleTypeOptions = useMemo(() => getUniqueModuleTypes(modules), [modules]);
   const filteredModuleIds = useMemo(() => getCurrentPageIds(filteredModules, (module) => module.module_id), [filteredModules]);
+  const selectedDeadlineGroups = useMemo(
+    () => getSelectedModuleTypeDeadlineGroups(modules, selectedModuleIds, deadlineByType),
+    [modules, selectedModuleIds, deadlineByType],
+  );
+  const deadlineValidationMessage = getDeadlineValidationMessage(selectedDeadlineGroups);
   const assignmentPairCount = selectedUserIds.size * selectedModuleIds.size;
-  const canApply = Boolean(ieBaselineUserId && selectedUserIds.size > 0 && selectedModuleIds.size > 0);
+  const canOpenApplyDialog = Boolean(ieBaselineUserId && selectedUserIds.size > 0 && selectedModuleIds.size > 0);
+  const canApply = Boolean(canOpenApplyDialog && !deadlineValidationMessage);
 
   useEffect(() => {
     setUserPage(1);
@@ -160,6 +260,13 @@ export default function AssignModules() {
     setUserPage((current) => Math.min(current, userPageCount));
   }, [userPageCount]);
 
+  useEffect(() => {
+    setDeadlineByType((current) => {
+      const next = reconcileDeadlineByType(current, selectedDeadlineGroups);
+      return areDeadlineMapsEqual(current, next) ? current : next;
+    });
+  }, [selectedDeadlineGroups]);
+
   const bulkAddMutation = useMutation({
     mutationFn: () => {
       if (!ieBaselineUserId) throw new Error('Current IE Baseline user is not resolved yet.');
@@ -167,11 +274,13 @@ export default function AssignModules() {
         user_ids: Array.from(selectedUserIds).sort((a, b) => a - b),
         module_ids: Array.from(selectedModuleIds).sort((a, b) => a - b),
         assignee_id: ieBaselineUserId,
+        assignment_deadlines: toAssignmentDeadlines(selectedDeadlineGroups),
       }, ieBaselineUserId);
     },
     onSuccess: async (data: IEBaselineBulkAddUserModulesResponse) => {
       setSelectedUserIds(new Set());
       setSelectedModuleIds(new Set());
+      setDeadlineByType({});
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['iebaseline', 'users'] }),
@@ -212,6 +321,7 @@ export default function AssignModules() {
   const clearSelections = () => {
     setSelectedUserIds(new Set());
     setSelectedModuleIds(new Set());
+    setDeadlineByType({});
   };
 
   return (
@@ -237,7 +347,7 @@ export default function AssignModules() {
                 <AlertDialogTrigger asChild>
                   <Button
                     className="w-full gap-2 sm:w-auto"
-                    disabled={!canApply || bulkAddMutation.isPending || usersQuery.isError || modulesQuery.isError}
+                    disabled={!canOpenApplyDialog || bulkAddMutation.isPending || usersQuery.isError || modulesQuery.isError}
                   >
                     {bulkAddMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckSquare className="h-4 w-4" />}
                     Assign Modules
@@ -256,8 +366,17 @@ export default function AssignModules() {
                     <SummaryTile label="Modules" value={selectedModuleIds.size} />
                     <SummaryTile label="Pairs" value={assignmentPairCount} />
                   </div>
+                  <AssignmentDeadlineRows
+                    groups={selectedDeadlineGroups}
+                    onDeadlineChange={(moduleType, deadlineDate) => {
+                      setDeadlineByType((current) => ({ ...current, [moduleType]: deadlineDate }));
+                    }}
+                  />
                   {selectedModuleIds.size === 0 && (
                     <p className="text-sm text-destructive">Select at least one module before applying.</p>
+                  )}
+                  {deadlineValidationMessage && (
+                    <p className="text-sm text-destructive">{deadlineValidationMessage}</p>
                   )}
                   <AlertDialogFooter>
                     <AlertDialogCancel disabled={bulkAddMutation.isPending}>Cancel</AlertDialogCancel>
@@ -464,6 +583,7 @@ function EditUserModulesDialog({
 }) {
   const queryClient = useQueryClient();
   const [draftModuleIds, setDraftModuleIds] = useState<Set<number>>(new Set());
+  const [deadlineByType, setDeadlineByType] = useState<Record<string, string>>({});
   const [editSearch, setEditSearch] = useState('');
   const [editModuleType, setEditModuleType] = useState(MODULE_TYPE_ALL);
 
@@ -475,6 +595,7 @@ function EditUserModulesDialog({
 
   useEffect(() => {
     setDraftModuleIds(new Set());
+    setDeadlineByType({});
     setEditSearch('');
     setEditModuleType(MODULE_TYPE_ALL);
   }, [user?.user_id]);
@@ -493,12 +614,26 @@ function EditUserModulesDialog({
     () => getModuleAssignmentChanges(draftModuleIds, originalModuleIds),
     [draftModuleIds, originalModuleIds],
   );
+  const addedModuleIds = useMemo(() => new Set(changes.toAdd), [changes.toAdd]);
+  const addedDeadlineGroups = useMemo(
+    () => getSelectedModuleTypeDeadlineGroups(modules, addedModuleIds, deadlineByType),
+    [modules, addedModuleIds, deadlineByType],
+  );
+  const deadlineValidationMessage = getDeadlineValidationMessage(addedDeadlineGroups);
   const hasChanges = changes.toAdd.length > 0 || changes.toRemove.length > 0;
+  const canSaveChanges = Boolean(hasChanges && !deadlineValidationMessage);
   const moduleTypeOptions = useMemo(() => getUniqueModuleTypes(modules), [modules]);
   const filteredModules = useMemo(
     () => filterAssignableModules(modules, editSearch, editModuleType),
     [modules, editSearch, editModuleType],
   );
+
+  useEffect(() => {
+    setDeadlineByType((current) => {
+      const next = reconcileDeadlineByType(current, addedDeadlineGroups);
+      return areDeadlineMapsEqual(current, next) ? current : next;
+    });
+  }, [addedDeadlineGroups]);
 
   const updateModulesMutation = useMutation({
     mutationFn: () => {
@@ -508,6 +643,7 @@ function EditUserModulesDialog({
       return ieBaselineApi.users.modules.update(user.user_id, {
         module_ids: Array.from(draftModuleIds).sort((a, b) => a - b),
         assignee_id: currentUserId,
+        ...(addedDeadlineGroups.length > 0 ? { assignment_deadlines: toAssignmentDeadlines(addedDeadlineGroups) } : {}),
       }, currentUserId);
     },
     onSuccess: async (data) => {
@@ -541,6 +677,7 @@ function EditUserModulesDialog({
 
   const resetDraft = () => {
     setDraftModuleIds(new Set(originalModuleIds));
+    setDeadlineByType({});
   };
 
   const closeSheet = () => {
@@ -659,9 +796,18 @@ function EditUserModulesDialog({
                 <SummaryTile label="Remove" value={changes.toRemove.length} />
                 <SummaryTile label="Keep" value={changes.unchanged.length} />
               </div>
+              <AssignmentDeadlineRows
+                groups={addedDeadlineGroups}
+                onDeadlineChange={(moduleType, deadlineDate) => {
+                  setDeadlineByType((current) => ({ ...current, [moduleType]: deadlineDate }));
+                }}
+              />
+              {deadlineValidationMessage && (
+                <p className="text-sm text-destructive">{deadlineValidationMessage}</p>
+              )}
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={updateModulesMutation.isPending}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => updateModulesMutation.mutate()} disabled={updateModulesMutation.isPending}>
+                <AlertDialogAction onClick={() => updateModulesMutation.mutate()} disabled={!canSaveChanges || updateModulesMutation.isPending}>
                   {updateModulesMutation.isPending ? 'Saving...' : 'Confirm save'}
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -794,6 +940,73 @@ function ModuleSelectionTable({
         </div>
       )}
     </Card>
+  );
+}
+
+function AssignmentDeadlineRows({
+  groups,
+  onDeadlineChange,
+}: {
+  groups: ModuleTypeDeadlineGroup[];
+  onDeadlineChange: (moduleType: string, deadlineDate: string) => void;
+}) {
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="space-y-2 rounded-md border border-border/50 p-3">
+      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Deadlines by type</div>
+      <div className="space-y-2">
+        {groups.map((group) => (
+          <div key={group.moduleType} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_170px] sm:items-center">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground">{group.moduleType}</div>
+              <div className="text-xs text-muted-foreground">
+                {group.moduleCount} module{group.moduleCount === 1 ? '' : 's'}
+              </div>
+            </div>
+            <DeadlinePicker
+              value={group.deadlineDate}
+              onChange={(deadlineDate) => onDeadlineChange(group.moduleType, deadlineDate)}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DeadlinePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const selectedDate = parseYmd(value);
+  const todayDate = parseYmd(getTodayYmd());
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn('w-full justify-start gap-2 text-left font-normal', !value && 'text-muted-foreground')}
+        >
+          <CalendarIcon className="h-4 w-4 shrink-0 opacity-70" />
+          {value ? formatDateForDisplay(value) : 'Select date'}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="end">
+        <Calendar
+          mode="single"
+          selected={selectedDate}
+          defaultMonth={selectedDate ?? todayDate}
+          disabled={(date) => Boolean(todayDate && toYmd(date) < toYmd(todayDate))}
+          onSelect={(date) => {
+            if (!date) return;
+            onChange(toYmd(date));
+            setOpen(false);
+          }}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 

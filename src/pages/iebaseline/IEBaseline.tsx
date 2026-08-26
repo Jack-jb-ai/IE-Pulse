@@ -201,8 +201,9 @@ export default function IEBaseline() {
         <Card className="border-border/50 bg-background/40 backdrop-blur-sm overflow-hidden">
           {/* Table Header */}
           <div className="grid grid-cols-12 gap-4 p-4 border-b border-border/50 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-5">Module Name</div>
-            <div className="col-span-4">Progress</div>
+            <div className="col-span-4">Module Name</div>
+            <div className="col-span-3">Progress</div>
+            <div className="col-span-2">Deadline</div>
             <div className="col-span-2">Status</div>
             <div className="col-span-1 text-right">Action</div>
           </div>
@@ -280,6 +281,8 @@ function AssignmentAccordionItem({
   getStatusColorClass: (status: ModuleStatus) => string;
 }) {
   const displayProgress = assignment.status === 'Not Started' ? 0 : assignment.progress;
+  const remainingDaysLabel = getRemainingDaysLabel(assignment.remaining_days);
+  const remainingDaysClass = getRemainingDaysClass(assignment.remaining_days);
 
   return (
     <AccordionItem
@@ -288,7 +291,7 @@ function AssignmentAccordionItem({
     >
       <AccordionTrigger className="hover:no-underline px-4 py-4 hover:bg-muted/20 transition-colors [&[data-state=open]]:bg-muted/10">
             <div className="grid grid-cols-12 gap-4 w-full items-center text-left text-sm">
-              <div className="col-span-5 font-medium text-foreground">
+              <div className="col-span-4 font-medium text-foreground">
                 <Link
                   to={`/iebaseline/module/${assignment.module_id}`}
                   className="hover:text-primary transition-colors hover:underline underline-offset-4"
@@ -298,7 +301,7 @@ function AssignmentAccordionItem({
                 </Link>
               </div>
 
-              <div className="col-span-4 flex items-center gap-3 pr-8">
+              <div className="col-span-3 flex items-center gap-3 pr-4">
                 <Progress
                   value={displayProgress}
                   className={`h-2 flex-1 bg-muted ${displayProgress === 100 ? '[&>div]:bg-emerald-500' : ''}`}
@@ -306,6 +309,13 @@ function AssignmentAccordionItem({
                 <span className="text-xs font-medium text-muted-foreground min-w-[3rem] text-right">
                   {displayProgress}%
                 </span>
+              </div>
+
+              <div className="col-span-2 min-w-0">
+                <div className="truncate text-xs font-medium text-foreground">
+                  {assignment.deadline_date ? formatDate(assignment.deadline_date) : 'No deadline'}
+                </div>
+                <div className={`truncate text-xs ${remainingDaysClass}`}>{remainingDaysLabel}</div>
               </div>
 
               <div className="col-span-2">
@@ -344,7 +354,7 @@ function AssignmentAccordionItem({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-muted-foreground">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs text-muted-foreground">
                     <div className="p-3 rounded-md bg-background/40 border border-border/50">
                       <span className="block font-semibold text-foreground mb-1">Owner</span>
                       {assignment.owner_name ?? 'N/A'}
@@ -356,6 +366,17 @@ function AssignmentAccordionItem({
                     <div className="p-3 rounded-md bg-background/40 border border-border/50">
                       <span className="block font-semibold text-foreground mb-1">Assigned At</span>
                       {formatDate(assignment.assigned_at)}
+                    </div>
+                    <div className="p-3 rounded-md bg-background/40 border border-border/50">
+                      <span className="block font-semibold text-foreground mb-1">Deadline</span>
+                      {assignment.deadline_date ? (
+                        <>
+                          <span className="block">{formatDate(assignment.deadline_date)}</span>
+                          <span className={remainingDaysClass}>{remainingDaysLabel}</span>
+                        </>
+                      ) : (
+                        'N/A'
+                      )}
                     </div>
                   </div>
                 </div>
@@ -373,4 +394,22 @@ function AssignmentAccordionItem({
           </AccordionContent>
         </AccordionItem>
   );
+}
+
+export function getRemainingDaysLabel(remainingDays: number | null | undefined) {
+  if (remainingDays === null || remainingDays === undefined || !Number.isFinite(remainingDays)) return 'No countdown';
+  if (remainingDays === 0) return 'Due today';
+
+  const absoluteDays = Math.abs(remainingDays);
+  const dayLabel = absoluteDays === 1 ? 'day' : 'days';
+
+  return remainingDays > 0 ? `${absoluteDays} ${dayLabel} left` : `${absoluteDays} ${dayLabel} overdue`;
+}
+
+export function getRemainingDaysClass(remainingDays: number | null | undefined) {
+  if (remainingDays === null || remainingDays === undefined || !Number.isFinite(remainingDays)) return 'text-muted-foreground';
+  if (remainingDays < 0) return 'text-red-600';
+  if (remainingDays === 0) return 'text-amber-600';
+  if (remainingDays <= 7) return 'text-red-600';
+  return 'text-emerald-600';
 }

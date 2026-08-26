@@ -85,6 +85,10 @@ describe('IE Baseline API protected actor params', () => {
       user_ids: [1, 2],
       module_ids: [3, 4],
       assignee_id: 7,
+      assignment_deadlines: [
+        { module_type: 'Global', deadline_date: '2026-10-18' },
+        { module_type: 'Site', deadline_date: '2026-11-30' },
+      ],
     }, 7);
 
     const fetchMock = vi.mocked(fetch);
@@ -95,6 +99,32 @@ describe('IE Baseline API protected actor params', () => {
       user_ids: [1, 2],
       module_ids: [3, 4],
       assignee_id: 7,
+      assignment_deadlines: [
+        { module_type: 'Global', deadline_date: '2026-10-18' },
+        { module_type: 'Site', deadline_date: '2026-11-30' },
+      ],
+    });
+  });
+
+  it('posts replacement module assignment deadlines for newly added groups', async () => {
+    await ieBaselineApi.users.modules.update(12, {
+      module_ids: [3, 4],
+      assignee_id: 7,
+      assignment_deadlines: [
+        { module_type: 'Site', deadline_date: '2026-11-30' },
+      ],
+    }, 7);
+
+    const fetchMock = vi.mocked(fetch);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/ietools/iebaseline/api/users/12/modules?current_user_id=7');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(String(init?.body))).toEqual({
+      module_ids: [3, 4],
+      assignee_id: 7,
+      assignment_deadlines: [
+        { module_type: 'Site', deadline_date: '2026-11-30' },
+      ],
     });
   });
 

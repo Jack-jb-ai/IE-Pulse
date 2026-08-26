@@ -404,6 +404,7 @@ CREATE TABLE user_checklist_status (
     module_id BIGINT NOT NULL,
     status checklist_status NOT NULL DEFAULT 'Not Started',
     assignee_id BIGINT,
+    deadline_date DATE,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -440,8 +441,13 @@ CREATE TABLE user_checklist_status (
 | `module_id`   | `BIGINT`           | Not null, foreign key               | Module assigned to the user.                              |
 | `status`      | `checklist_status` | Not null, default `Not Started`     | Assignment workflow status for the module checklist.      |
 | `assignee_id` | `BIGINT`           | Nullable, foreign key               | User responsible for assigning or managing the checklist. |
+| `deadline_date` | `DATE`           | Nullable                            | Calendar deadline stored on the assignment row.           |
 | `created_at`  | `TIMESTAMPTZ`      | Not null, default current timestamp | Date and time when the assignment was created.            |
 | `updated_at`  | `TIMESTAMPTZ`      | Not null, default current timestamp | Date and time when the assignment was last updated.       |
+
+`remaining_days` is not stored. APIs derive it dynamically from
+`deadline_date - CURRENT_DATE`, allowing positive, zero, or overdue negative
+values.
 
 ---
 
@@ -703,16 +709,20 @@ When creating a new module assignment:
 
 1. Confirm that the `user_id` exists in `user_master`.
 2. Confirm that the `module_id` exists in `module_master`.
-3. Optionally provide an `assignee_id`.
-4. Optionally provide `reports_to`, `email`, `department`, and `role_id` on the user profile.
-5. Create the checklist status record.
-6. Use `Not Started` as the default status when no status is provided.
+3. Confirm that the selected module has a non-null `module_type`.
+4. Provide a `deadline_date` for the selected module type.
+5. Optionally provide an `assignee_id`.
+6. Optionally provide `reports_to`, `email`, `department`, and `role_id` on the user profile.
+7. Create the checklist status record.
+8. Use `Not Started` as the default status when no status is provided.
 
 For bulk assignment creation, validate every requested `user_id`, every
 requested `module_id`, and the `assignee_id` before inserting. Deduplicate the
 requested user and module IDs, insert only missing `(user_id, module_id)` pairs,
 and preserve existing `user_checklist_status` rows without changing their
-`status`, `assignee_id`, attempts, answers, or progress.
+`status`, `assignee_id`, `deadline_date`, attempts, answers, or progress.
+New rows store the deadline matched from `assignment_deadlines[]` by
+`module_master.module_type`.
 
 Example:
 
@@ -720,12 +730,14 @@ Example:
 INSERT INTO user_checklist_status (
     user_id,
     module_id,
-    assignee_id
+    assignee_id,
+    deadline_date
 )
 VALUES (
     1,
     3,
-    5
+    5,
+    DATE '2026-10-18'
 );
 ```
 
@@ -733,6 +745,7 @@ The inserted record will automatically receive:
 
 ```text
 status = Not Started
+deadline_date = 2026-10-18
 ```
 
 To update assignment workflow status:
@@ -755,6 +768,7 @@ WHERE user_id = 1
 * Do not create duplicate records for the same `user_id` and `module_id`.
 * Use `user_id` for the person completing the checklist.
 * Use `assignee_id` for the person who assigned or manages the checklist.
+* Store `deadline_date` on assignment rows and derive `remaining_days` in API responses.
 * When updating a record, explicitly update `updated_at` unless an automatic database trigger is added later.
 * Validate foreign key references before inserting records.
 

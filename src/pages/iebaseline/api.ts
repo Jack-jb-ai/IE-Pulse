@@ -25,6 +25,8 @@ export interface IEBaselineHomeAssignment {
   progress: number;
   assigned_at: string;
   updated_at: string;
+  deadline_date?: string | null;
+  remaining_days?: number | null;
   question_count: number;
 }
 
@@ -180,6 +182,7 @@ export interface IEBaselineUserModulesResponse {
 export interface IEBaselineUpdateUserModulesRequest {
   module_ids: number[];
   assignee_id: number;
+  assignment_deadlines?: IEBaselineAssignmentDeadline[];
 }
 
 export interface IEBaselineUpdateUserModulesResponse {
@@ -194,6 +197,12 @@ export interface IEBaselineBulkAddUserModulesRequest {
   user_ids: number[];
   module_ids: number[];
   assignee_id: number;
+  assignment_deadlines?: IEBaselineAssignmentDeadline[];
+}
+
+export interface IEBaselineAssignmentDeadline {
+  module_type: string;
+  deadline_date: string;
 }
 
 export interface IEBaselineBulkAddUserModulesResponse {

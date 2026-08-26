@@ -5,9 +5,16 @@ import {
   USER_PAGE_SIZE,
   filterAssignableModules,
   filterAssignableUsers,
+  formatDateForDisplay,
+  getDeadlineValidationMessage,
   getModuleAssignmentChanges,
+  getSelectedModuleTypeDeadlineGroups,
   getUniqueModuleTypes,
   paginateItems,
+  parseYmd,
+  reconcileDeadlineByType,
+  toAssignmentDeadlines,
+  toYmd,
   toggleCurrentPageSelection,
 } from './AssignModules';
 import type { IEBaselineModule, IEBaselineUser } from './api';
@@ -67,5 +74,63 @@ describe('Modules Assignment helpers', () => {
     expect(changes.toAdd).toEqual([4]);
     expect(changes.toRemove).toEqual([1]);
     expect(changes.unchanged).toEqual([2, 3]);
+  });
+
+  it('groups selected modules by type with independent deadlines', () => {
+    const groups = getSelectedModuleTypeDeadlineGroups(modules, new Set([10, 11, 12]), {
+      Global: '2026-10-18',
+      Site: '2026-11-30',
+      [MODULE_TYPE_UNSPECIFIED]: '2027-01-15',
+    });
+
+    expect(groups).toEqual([
+      { moduleType: 'Global', moduleCount: 1, deadlineDate: '2026-10-18' },
+      { moduleType: 'Site', moduleCount: 1, deadlineDate: '2026-11-30' },
+      { moduleType: MODULE_TYPE_UNSPECIFIED, moduleCount: 1, deadlineDate: '2027-01-15' },
+    ]);
+  });
+
+  it('preserves selected deadlines only while their module type remains selected', () => {
+    const groups = getSelectedModuleTypeDeadlineGroups(modules, new Set([10, 11]));
+    const reconciled = reconcileDeadlineByType(
+      { Global: '2026-10-18', Site: '2026-11-30', Removed: '2027-01-15' },
+      groups,
+    );
+
+    expect(reconciled).toEqual({
+      Global: '2026-10-18',
+      Site: '2026-11-30',
+    });
+  });
+
+  it('validates missing and past module type deadlines', () => {
+    expect(getDeadlineValidationMessage([
+      { moduleType: 'Global', moduleCount: 1, deadlineDate: '' },
+    ], '2026-08-18')).toBe('Select a deadline for every selected module type.');
+
+    expect(getDeadlineValidationMessage([
+      { moduleType: 'Global', moduleCount: 1, deadlineDate: '2026-08-17' },
+    ], '2026-08-18')).toBe('Deadline dates cannot be earlier than today.');
+
+    expect(getDeadlineValidationMessage([
+      { moduleType: 'Global', moduleCount: 1, deadlineDate: '2026-08-18' },
+    ], '2026-08-18')).toBeNull();
+  });
+
+  it('converts selected type deadlines to the assignment payload shape', () => {
+    expect(toAssignmentDeadlines([
+      { moduleType: 'Global', moduleCount: 2, deadlineDate: '2026-10-18' },
+    ])).toEqual([
+      { module_type: 'Global', deadline_date: '2026-10-18' },
+    ]);
+  });
+
+  it('parses and formats local date-only values', () => {
+    const date = parseYmd('2026-10-18');
+
+    expect(date).toBeInstanceOf(Date);
+    expect(toYmd(date!)).toBe('2026-10-18');
+    expect(parseYmd('2026-02-31')).toBeUndefined();
+    expect(formatDateForDisplay('not-a-date')).toBe('');
   });
 });

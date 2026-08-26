@@ -1,98 +1,98 @@
 ## Objective
 
-Update the module assignment UI to support configurable deadline durations based on the selected module type.
+Update the LMS module assignment UI so that an admin can manually select a deadline date for each selected module type.
 
-Modules are grouped by a module type. Each module type will now have a backend-provided default deadline duration, for example:
+Modules are grouped by module type, and one type may contain multiple modules.
 
-* Type A → 2 months
-* Type B → 3 months
-* Type C → 1 month
-
-The purpose is to use this value as a QOL prefill when an admin assigns modules, while still allowing the admin to override the suggested duration.
-
-## Current Behaviour
-
-The admin can assign one or multiple module types/modules to a learner.
-
-A single module type may contain multiple modules.
-
-## Required Changes
-
-When loading the available module types/modules for assignment, use the `default_duration_months` value returned by the backend.
-
-Example response concept:
-
-```json
-{
-  "type_id": 1,
-  "type_name": "Type A",
-  "default_duration_months": 2,
-  "modules": [
-    {
-      "module_id": 101,
-      "module_name": "Module A"
-    },
-    {
-      "module_id": 102,
-      "module_name": "Module B"
-    }
-  ]
-}
-```
-
-For each selected module type:
-
-1. Prefill its deadline duration using `default_duration_months`.
-2. Allow the admin to override the value using a dropdown.
-3. Suggested dropdown values can be:
-
-```text
-1 month
-2 months
-3 months
-4 months
-5 months
-6 months
-```
-
-Do not hardcode the default deadline for individual module types in the frontend.
-
-The backend-provided `default_duration_months` must be treated as the source of truth for the initial value.
-
-The dropdown options themselves may remain frontend-defined for now.
-
-## Multiple Module Types
-
-The admin may select multiple module types in the same assignment operation.
-
-Each selected type should maintain its own deadline duration.
+The admin may assign multiple module types in one operation.
 
 Example:
 
 ```text
 Type A
-Deadline: [2 months ▼]
+├── Module 1
+├── Module 2
+└── Module 3
+
+Deadline: [ Calendar Date Picker ]
 
 Type B
-Deadline: [3 months ▼]
+├── Module 4
+└── Module 5
 
-Type C
-Deadline: [1 month ▼]
+Deadline: [ Calendar Date Picker ]
 ```
 
-The admin should be able to change them independently:
+Each selected module type should have its own independently selected deadline.
+
+## Current Requirement
+
+There is no default deadline duration and no prefilled deadline based on module type.
+
+Do not implement any `default_duration_months` or similar configuration.
+
+The admin should manually choose the deadline date using a calendar/date picker.
+
+## Required Frontend Changes
+
+Inspect the existing module assignment page/components first.
+
+Locate:
+
+* the module type selection UI
+* the module assignment state
+* the existing assignment API request
+* the existing interfaces/types used for module types and assignments
+
+Then add deadline selection at the module type level.
+
+For every selected module type, display a date picker.
+
+Example:
 
 ```text
-Type A → 2 months
-Type B → 4 months
-Type C → 1 month
+Type A
+Deadline: [ 18/10/2026 📅 ]
+
+Type B
+Deadline: [ 30/11/2026 📅 ]
 ```
 
-Changing Type B must not affect Type A or Type C.
+The selected deadline for one type must not affect another selected type.
+
+For example:
+
+```text
+Type A → 2026-10-18
+Type B → 2026-11-30
+Type C → 2027-01-15
+```
+
+## Multiple Modules Under One Type
+
+A module type may contain multiple modules.
+
+The admin selects one deadline for the type, and that deadline should apply to all modules being assigned under that type.
+
+The frontend does not need to create an individual deadline input for every module.
+
+Example:
+
+```text
+Type A
+Deadline: 2026-10-18
+
+Modules:
+- Module 1
+- Module 2
+- Module 3
+```
+
+All modules under Type A will use `2026-10-18`.
 
 ## Assignment Payload
 
-Update the assignment request payload so that the selected duration for each type is sent to the backend.
+Update the existing assignment payload so that the selected deadline is sent together with each selected module type.
 
 Preferred conceptual structure:
 
@@ -102,28 +102,61 @@ Preferred conceptual structure:
   "assignments": [
     {
       "type_id": 1,
-      "duration_months": 2
+      "deadline_date": "2026-10-18"
     },
     {
       "type_id": 2,
-      "duration_months": 4
+      "deadline_date": "2026-11-30"
     }
   ]
 }
 ```
 
-Please adapt this to the existing API structure rather than replacing working functionality unnecessarily.
+Please adapt this to the existing API structure instead of unnecessarily redesigning working endpoints.
 
-## Implementation Notes
+## Validation
 
-* Inspect the existing assignment page/components and API client first.
-* Reuse the existing API that loads module/type assignment options rather than introducing a separate API call just for the deadline default.
-* Keep the changes minimal and consistent with the existing project structure.
-* Preserve all existing assignment behaviour.
-* Do not duplicate backend business rules in the frontend.
-* Use the backend value only to initialize/prefill the selected duration.
-* Once the admin manually changes the duration, preserve their selected value.
+Before allowing submission:
 
-Before modifying the code, inspect the existing implementation and identify the relevant components, state management, API types/interfaces, and assignment payload structure.
+* Every selected module type must have a deadline selected.
+* The deadline should not be earlier than the current date.
+* Preserve any existing validation already present on the assignment form.
+* Display validation using the project's existing UI conventions.
 
-Then implement the changes using the existing patterns in the repository.
+If the project already has a date picker component/library, reuse it.
+
+Do not introduce a new UI dependency unless necessary.
+
+## Important Design Rules
+
+The frontend is responsible for:
+
+```text
+Admin selects module type(s)
+        ↓
+Admin selects deadline for each type
+        ↓
+Frontend sends selected type + deadline
+        ↓
+Backend creates actual module assignments
+```
+
+The frontend should not calculate or store `remaining_days` as persistent data.
+
+If the backend returns `remaining_days` for existing assignments, the frontend may display it.
+
+## Implementation Approach
+
+Before making changes:
+
+1. Inspect the existing assignment page.
+2. Identify how selected module types are currently stored in state.
+3. Add a deadline value to each selected type's state.
+4. Add the calendar/date picker.
+5. Update validation.
+6. Update the assignment request payload.
+7. Preserve the existing module/type selection behaviour.
+
+Keep the implementation minimal and consistent with the existing React/Vite project structure.
+
+Avoid unnecessary refactoring.

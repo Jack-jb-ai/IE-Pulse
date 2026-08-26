@@ -155,6 +155,8 @@ empty `assignments` array.
       "status": "In Progress",
       "raw_status": "In Progress",
       "progress": 45,
+      "deadline_date": "2026-10-18",
+      "remaining_days": 61,
       "assigned_at": "2026-07-22T01:00:00+00:00",
       "updated_at": "2026-07-22T01:00:00+00:00",
       "question_count": 12
@@ -171,6 +173,10 @@ the assignment's `user_id` and `module_id` when the stored assignment status is
 not `Not Started`.
 
 `assignments[].progress` is a numeric percentage from `0` to `100`.
+`assignments[].deadline_date` is the stored assignment calendar date, or
+`null` for older rows without a deadline. `assignments[].remaining_days` is
+derived dynamically from `deadline_date - CURRENT_DATE` and may be positive,
+zero, or negative.
 
 Calculation:
 
@@ -249,6 +255,8 @@ for display.
 | `assignments[].status` | Stored assignment workflow status: `Not Started`, `In Progress`, `Submitted`, `Rejected`, or `Completed` |
 | `assignments[].raw_status` | Compatibility field mirroring `assignments[].status` |
 | `assignments[].progress` | Latest-attempt completion percentage from `0` to `100` |
+| `assignments[].deadline_date` | Stored assignment deadline date, or `null` |
+| `assignments[].remaining_days` | Dynamic day difference from the current database date to `deadline_date`, or `null` |
 | `assignments[].assigned_at` | Assignment creation timestamp |
 | `assignments[].updated_at` | Assignment last update timestamp |
 | `assignments[].question_count` | Number of checklist questions for the module |
@@ -1149,7 +1157,13 @@ Content-Type: application/json
 {
   "user_ids": [1, 2],
   "module_ids": [3, 7],
-  "assignee_id": 5
+  "assignee_id": 5,
+  "assignment_deadlines": [
+    {
+      "module_type": "Global",
+      "deadline_date": "2026-10-18"
+    }
+  ]
 }
 ```
 
@@ -1160,6 +1174,7 @@ Content-Type: application/json
 | `user_ids` | User IDs that should receive the selected modules. Duplicate IDs are allowed and are deduplicated by the API. An empty array is valid and creates no assignment rows. |
 | `module_ids` | Module IDs to add to each selected user. Duplicate IDs are allowed and are deduplicated by the API. An empty array is valid and creates no assignment rows. |
 | `assignee_id` | User who assigned or manages the checklist. Must exist in `user_master`. |
+| `assignment_deadlines` | Required when `module_ids` is not empty. Array of `{ module_type, deadline_date }` objects. Each selected module type must appear exactly once. |
 
 ### Success Response
 
@@ -1179,10 +1194,12 @@ Status: `200 OK`
 * Validate that every `user_id` exists in `user_master`.
 * Validate that `assignee_id` exists in `user_master`.
 * Validate that every `module_id` exists in `module_master`.
+* Validate that every selected module has a non-null `module_type`.
+* Validate that `assignment_deadlines` provides exactly one non-past `deadline_date` for every selected `module_type`.
 * Deduplicate `user_ids` and `module_ids`; response arrays are sorted ascending.
-* Insert missing `user_checklist_status` rows with default `Not Started`.
-* Preserve existing assignment rows, including current status and progress.
-* Do not update existing assignment rows, including `status`, `assignee_id`, attempts, answers, and progress.
+* Insert missing `user_checklist_status` rows with default `Not Started` and the matched `deadline_date`.
+* Preserve existing assignment rows, including current status, deadline, and progress.
+* Do not update existing assignment rows, including `status`, `assignee_id`, `deadline_date`, attempts, answers, and progress.
 * Do not delete assignments that are not included in the request.
 * Return inserted and unchanged counts across all user/module pairs.
 * If `user_ids` or `module_ids` is empty, return `inserted_count: 0` and `unchanged_count: 0`.
@@ -1210,6 +1227,22 @@ Status: `400 Bad Request`
 ```json
 {
   "detail": "Invalid assignee_id"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "assignment_deadlines is required"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Missing assignment_deadlines for selected module_type"
 }
 ```
 
@@ -1396,7 +1429,17 @@ Content-Type: application/json
 ```json
 {
   "module_ids": [3, 7, 9],
-  "assignee_id": 1
+  "assignee_id": 1,
+  "assignment_deadlines": [
+    {
+      "module_type": "Global",
+      "deadline_date": "2026-10-18"
+    },
+    {
+      "module_type": "Site",
+      "deadline_date": "2026-11-30"
+    }
+  ]
 }
 ```
 
@@ -1406,6 +1449,7 @@ Content-Type: application/json
 | --- | --- |
 | `module_ids` | Full replacement set of assigned module IDs. Duplicate IDs are allowed but are deduplicated by the API. An empty array is valid and removes all assignments. |
 | `assignee_id` | User who assigned or manages the checklist. Must exist in `user_master`. |
+| `assignment_deadlines` | Required when `module_ids` is not empty. Array of `{ module_type, deadline_date }` objects. Each selected module type must appear exactly once. |
 
 ### Success Response
 
@@ -1426,10 +1470,12 @@ Status: `200 OK`
 * Validate that `user_id` exists in `user_master`.
 * Validate that `assignee_id` exists in `user_master`.
 * Validate that every `module_id` exists in `module_master`.
+* Validate that every selected module has a non-null `module_type`.
+* Validate that `assignment_deadlines` provides exactly one non-past `deadline_date` for every selected `module_type`.
 * Deduplicate `module_ids` and sort response arrays ascending.
-* Insert missing `user_checklist_status` rows with default `Not Started`.
+* Insert missing `user_checklist_status` rows with default `Not Started` and the matched `deadline_date`.
 * Delete `user_checklist_status` rows for modules no longer included.
-* Preserve existing rows for unchanged assignments, including their current status.
+* Preserve existing rows for unchanged assignments, including their current status and deadline.
 * Set `created_at` and `updated_at` when rows are inserted.
 * Respect the unique constraint on `(user_id, module_id)`.
 
@@ -1448,6 +1494,22 @@ Status: `400 Bad Request`
 ```json
 {
   "detail": "Invalid assignee_id"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "assignment_deadlines is required"
+}
+```
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "Missing assignment_deadlines for selected module_type"
 }
 ```
 
