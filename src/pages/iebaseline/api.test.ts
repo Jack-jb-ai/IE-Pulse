@@ -63,6 +63,12 @@ describe('IE Baseline API protected actor params', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/ietools/iebaseline/api/users/12/modules?current_user_id=7');
   });
 
+  it('adds current_user_id to assignment status URLs', async () => {
+    await ieBaselineApi.assignmentStatus.list(7);
+
+    expect(fetchUrl()).toBe('/ietools/iebaseline/api/assignment-status?current_user_id=7');
+  });
+
   it('loads modules with module_type from the API response', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse([
       {

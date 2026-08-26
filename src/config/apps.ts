@@ -15,6 +15,7 @@ import {
   Inbox,
   Kanban,
   Layers,
+  ListChecks,
   LayoutDashboard,
   LineChart,
   LucideIcon,
@@ -238,6 +239,7 @@ export const APPS: AppConfig[] = [
       { label: 'Previous Attempts', to: '/iebaseline/attempts', icon: ClipboardList },
       { label: 'Edit', to: '/iebaseline/edit', icon: Pencil },
       { label: 'Modules Assignment', to: '/iebaseline/assign', icon: UserCheck },
+      { label: 'Assignment Status', to: '/iebaseline/assignment-status', icon: ListChecks },
       {
         label: 'Approvals',
         to: '/iebaseline/approvals/inbox',

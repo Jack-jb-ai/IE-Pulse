@@ -11,6 +11,7 @@ export const IE_BASELINE_ROUTE_PATTERNS = [
   '/iebaseline',
   '/iebaseline/edit',
   '/iebaseline/assign',
+  '/iebaseline/assignment-status',
   '/iebaseline/approvals/my-submissions',
   '/iebaseline/approvals/inbox',
   '/iebaseline/approvals/:approvalId/review',

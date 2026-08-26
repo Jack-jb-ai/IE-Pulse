@@ -33,6 +33,7 @@ import IEBaselineEdit from "@/pages/iebaseline/IEBaselineEdit";
 import ModuleAdmin from "@/pages/iebaseline/ModuleAdmin";
 import ModuleOverview from "@/pages/iebaseline/ModuleOverview";
 import PreviousAttempts from "@/pages/iebaseline/PreviousAttempts";
+import UserAssignmentStatus from "@/pages/iebaseline/UserAssignmentStatus";
 import UserManagement from "@/pages/iebaseline/UserManagement";
 import IPKConfig from "@/pages/ipk/IPKConfig";
 import IPKDashboard from "@/pages/ipk/IPKDashboard";
@@ -203,6 +204,7 @@ function AppShell() {
               <Route path="/iebaseline" element={<GuardIEBaseline><IEBaseline /></GuardIEBaseline>} />
               <Route path="/iebaseline/edit" element={<GuardIEBaseline><IEBaselineEdit /></GuardIEBaseline>} />
               <Route path="/iebaseline/assign" element={<GuardIEBaseline><AssignModules /></GuardIEBaseline>} />
+              <Route path="/iebaseline/assignment-status" element={<GuardIEBaseline><UserAssignmentStatus /></GuardIEBaseline>} />
               <Route path="/iebaseline/approvals/my-submissions" element={<GuardIEBaseline><Approvals defaultTab="my-submissions" /></GuardIEBaseline>} />
               <Route path="/iebaseline/approvals/inbox" element={<GuardIEBaseline><Approvals defaultTab="inbox" /></GuardIEBaseline>} />
               <Route path="/iebaseline/approvals/:approvalId/review" element={<GuardIEBaseline><ApprovalReviewRoute /></GuardIEBaseline>} />

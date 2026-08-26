@@ -35,6 +35,46 @@ export interface IEBaselineHomeResponse {
   assignments: IEBaselineHomeAssignment[];
 }
 
+export type IEBaselineAssignmentStatusFilter = Exclude<IEBaselineHomeStatus, 'Completed'>;
+
+export interface IEBaselineAssignmentStatusUser {
+  user_id: number;
+  name: string;
+  position: string | null;
+  wd_id: number | null;
+  email?: string | null;
+  department?: string | null;
+}
+
+export interface IEBaselineAssignmentStatusRow {
+  assignment_id: number;
+  module_id: number;
+  module_name: string;
+  description: string | null;
+  owner_name: string | null;
+  assigned_by: {
+    user_id: number;
+    name: string;
+  } | null;
+  status: IEBaselineHomeStatus;
+  raw_status?: IEBaselineHomeStatus;
+  progress: number;
+  assigned_at: string;
+  updated_at: string;
+  deadline_date: string | null;
+  remaining_days: number | null;
+  question_count: number;
+}
+
+export interface IEBaselineAssignmentStatusGroup {
+  user: IEBaselineAssignmentStatusUser;
+  assignments: IEBaselineAssignmentStatusRow[];
+}
+
+export interface IEBaselineAssignmentStatusResponse {
+  users: IEBaselineAssignmentStatusGroup[];
+}
+
 export interface IEBaselineUser {
   user_id: number;
   name: string;
@@ -516,6 +556,10 @@ export const ieBaselineApi = {
   home: {
     get: (userId: number) =>
       get<IEBaselineHomeResponse>(`/home?user_id=${encodeURIComponent(String(userId))}`),
+  },
+  assignmentStatus: {
+    list: (currentUserId: number) =>
+      get<IEBaselineAssignmentStatusResponse>(withCurrentUser('/assignment-status', currentUserId)),
   },
   users: {
     list: (currentUserId: number) =>

@@ -10,6 +10,7 @@ describe('IE Baseline route access helpers', () => {
 
   it('matches static IE Baseline routes exactly', () => {
     expect(doesIEBaselineRouteMatch('/iebaseline/users', '/iebaseline/users')).toBe(true);
+    expect(doesIEBaselineRouteMatch('/iebaseline/assignment-status', '/iebaseline/assignment-status')).toBe(true);
     expect(doesIEBaselineRouteMatch('/iebaseline/users', '/iebaseline/users/extra')).toBe(false);
   });
 

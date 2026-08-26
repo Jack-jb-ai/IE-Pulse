@@ -13,6 +13,7 @@ const routes = [
   { path: '/iebaseline/attempts/:attemptId/results', page: 'FinalResults.tsx', purpose: 'Selected attempt answer and score results' },
   { path: '/iebaseline/module/:moduleId/results', page: 'FinalResults.tsx', purpose: 'Legacy latest module attempt result route' },
   { path: '/iebaseline/assign', page: 'AssignModules.tsx', purpose: 'User/module assignment management' },
+  { path: '/iebaseline/assignment-status', page: 'UserAssignmentStatus.tsx', purpose: 'Admin/Dev overview of active user assignment statuses' },
   { path: '/iebaseline/approvals/my-submissions', page: 'Approvals.tsx', purpose: 'Learner approval request history' },
   { path: '/iebaseline/approvals/inbox', page: 'Approvals.tsx', purpose: 'Approver inbox for assigned checklist reviews' },
   { path: '/iebaseline/approvals/:approvalId/review', page: 'ApprovalReviewRoute', purpose: 'Full-screen approver review workflow' },
@@ -369,6 +370,42 @@ const pages = [
     ],
   },
   {
+    name: 'User Assignment Status',
+    route: '/iebaseline/assignment-status',
+    file: 'UserAssignmentStatus.tsx',
+    owner: 'Admin/Dev active assignment status monitoring',
+    source: 'Assignment status API backed by user_checklist_status, excluding Completed rows.',
+    features: [
+      'Resolves the current IE Baseline user for protected route authorization.',
+      'Loads active user_checklist_status rows grouped by learner user_id.',
+      'Searches by learner name, WD ID, email, and module name.',
+      'Filters by Not Started, In Progress, Submitted, and Rejected status.',
+      'Shows summary counts for visible users, active assignments, overdue rows, and submitted/rejected rows.',
+      'Displays module status, progress, deadline, remaining days, assignee, assigned date, and updated date.',
+    ],
+    apis: ['POST /users/resolve-current', 'GET /assignment-status?current_user_id=...'],
+    actions: [
+      {
+        trigger: 'Search',
+        condition: 'Assignments are loaded.',
+        result: 'Locally filters grouped assignments by user or module fields.',
+        api: 'No immediate API call.',
+      },
+      {
+        trigger: 'Status filter',
+        condition: 'Assignments are loaded.',
+        result: 'Locally filters grouped assignments by active checklist status.',
+        api: 'No immediate API call.',
+      },
+      {
+        trigger: 'User group expand',
+        condition: 'Visible for every learner with matching active assignments.',
+        result: 'Shows the learner assignment rows in a read-only table.',
+        api: 'No immediate API call.',
+      },
+    ],
+  },
+  {
     name: 'User Management',
     route: '/iebaseline/users',
     file: 'UserManagement.tsx',
@@ -488,6 +525,7 @@ const apiCalls = [
   { method: 'GET', path: '/users/{user_id}/modules', wrapper: 'users.modules.get', usedBy: 'Available wrapper', purpose: 'Load one selected user module ID set' },
   { method: 'PUT', path: '/users/{user_id}/modules', wrapper: 'users.modules.update', usedBy: 'Available wrapper', purpose: 'Replace one selected user module assignment set' },
   { method: 'POST', path: '/users/modules/bulk-add', wrapper: 'users.modules.bulkAdd', usedBy: 'Modules Assignment', purpose: 'Bulk add selected modules to selected users' },
+  { method: 'GET', path: '/assignment-status?current_user_id=...', wrapper: 'assignmentStatus.list', usedBy: 'User Assignment Status', purpose: 'Load active assignment rows grouped by learner for Admin/Dev monitoring' },
   { method: 'POST', path: '/modules/{module_id}/attempts/start', wrapper: 'modules.attempts.start', usedBy: 'Exam Modal', purpose: 'Start or resume an attempt' },
   { method: 'GET', path: '/modules/{module_id}/attempts?user_id=...', wrapper: 'modules.attempts.list', usedBy: 'Exam Modal, Final Results', purpose: 'Load module-scoped attempt history' },
   { method: 'GET', path: '/attempts?user_id=...', wrapper: 'attempts.list', usedBy: 'Previous Attempts', purpose: 'Load user attempt history independent of active assignments' },
@@ -523,7 +561,7 @@ const flow = [
   'Backend sends approved or rejected notification after the decision workflow commits.',
 ];
 
-const usedByOptions = ['All', 'Approval Review', 'Approvals', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'Modules Assignment', 'Previous Attempts', 'User Management'];
+const usedByOptions = ['All', 'Approval Review', 'Approvals', 'Available wrapper', 'Dashboard', 'Exam Modal', 'Final Results', 'Module Overview', 'Modules Assignment', 'Previous Attempts', 'User Assignment Status', 'User Management'];
 
 function methodClass(method: string) {
   switch (method) {
