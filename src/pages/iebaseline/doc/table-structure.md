@@ -555,6 +555,10 @@ Behavior:
 * One system module can be linked to many roles.
 * Deleting a role removes its system module access rows.
 * Deleting a system module removes the corresponding role access rows.
+* The assignment status admin page is seeded as
+  `system_module_master.module_code = 'USER_ASSIGNMENT_STATUS'` with
+  `route_path = '/iebaseline/assignment-status'`; role access is granted to
+  admin and dev roles (`role_id` 2 and 3).
 
 ---
 

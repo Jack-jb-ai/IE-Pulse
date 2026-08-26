@@ -279,6 +279,123 @@ Status: `500 Internal Server Error`
 }
 ```
 
+## GET /api/iebaseline/assignment-status
+
+Fetches the admin assignment status view for all learners with active IE
+Baseline assignments. The response is grouped by learner and excludes
+`user_checklist_status.status = 'Completed'` rows.
+
+Authorization: requires `current_user_id` with access to
+`/iebaseline/assignment-status`.
+
+### Request
+
+| Item | Value |
+| --- | --- |
+| Authentication | Main application authentication; resolved user query required |
+| Query parameter | `current_user_id`, required integer |
+| Request body | None |
+
+### Example Request
+
+```http
+GET /api/iebaseline/assignment-status?current_user_id=5
+```
+
+### Success Response
+
+Status: `200 OK`
+
+Only users with at least one non-completed assignment are returned. If no active
+assignments exist, the API returns `{"users": []}`.
+
+```json
+{
+  "users": [
+    {
+      "user": {
+        "user_id": 1,
+        "name": "Jane Tan",
+        "position": "Manager",
+        "wd_id": 12345,
+        "email": "jane@example.com",
+        "department": "IE"
+      },
+      "assignments": [
+        {
+          "assignment_id": 10,
+          "module_id": 3,
+          "module_name": "Order to Cash",
+          "description": "Billing controls",
+          "owner_name": "Finance",
+          "assigned_by": {
+            "user_id": 5,
+            "name": "Alex Lee"
+          },
+          "status": "In Progress",
+          "raw_status": "In Progress",
+          "progress": 45,
+          "deadline_date": "2026-10-18",
+          "remaining_days": 61,
+          "assigned_at": "2026-07-22T01:00:00+00:00",
+          "updated_at": "2026-07-22T01:00:00+00:00",
+          "question_count": 12
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Progress, Filtering, and Ordering
+
+Assignment objects use the same status, progress, deadline, owner, assignee, and
+question-count semantics as `GET /api/iebaseline/home`.
+
+Rules:
+
+* `users[].assignments[].status` is read from `user_checklist_status.status`.
+* `users[].assignments[].raw_status` mirrors `status`.
+* `Not Started` assignments return `progress = 0`.
+* Other non-completed statuses calculate progress from the latest attempt.
+* `remaining_days` is derived from `deadline_date - CURRENT_DATE`.
+* Users are sorted by learner name and `user_id`.
+* Assignments are sorted by status order, `updated_at DESC`, then module name.
+
+### Error Responses
+
+Status: `400 Bad Request`
+
+```json
+{
+  "detail": "current_user_id is required"
+}
+```
+
+Status: `403 Forbidden`
+
+```json
+{
+  "detail": "User lacks system module access"
+}
+```
+
+Status: `404 Not Found`
+
+```json
+{
+  "detail": "User not found"
+}
+```
+
+Status: `500 Internal Server Error`
+
+```json
+{
+  "detail": "Database query failed"
+}
+```
+
 ## POST /api/iebaseline/users/resolve-current
 
 Resolves the signed-in AD user to a `user_master` row for IE Baseline learner
